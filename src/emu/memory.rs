@@ -246,5 +246,137 @@ mod test {
     }
 
     #[test]
-    fn test_write() {}
+    fn test_memory_map_write_cartrige_rom_0() {
+        let mut mmap = MemoryMap::new();
+        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+
+        // Start + end of Cartrige ROM bank 00
+        mmap.write(Address(0x0000), Byte(0xAA));
+        mmap.write(Address(0x3FFF), Byte(0xEE));
+        assert_eq!(mmap.cartrige[0x0000], Byte(0xAA));
+        assert_eq!(mmap.cartrige[CARTRIGE_BANK_SIZE - 1], Byte(0xEE));
+    }
+    // #[test]
+    // fn test_memory_map_read_cartrige_rom_1() {
+    //     let mut mmap = MemoryMap::new();
+    //     mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+
+    //     // Start + end of Cartrige ROM bank 01
+    //     mmap.cartrige[0x4000] = Byte(0xAA);
+    //     mmap.cartrige[0x4000 + CARTRIGE_BANK_SIZE - 1] = Byte(0xB0);
+    //     assert_eq!(mmap.read(Address(0x4000)), Byte(0xAA));
+    //     assert_eq!(mmap.read(Address(0x7FFF)), Byte(0xB0));
+    // }
+    // #[test]
+    // fn test_memory_map_read_cartrige_rom_2() {
+    //     let mut mmap = MemoryMap::new();
+    //     mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+
+    //     // Start + end of Cartrige ROM bank 02
+    //     mmap.cartrige_bank = 2;
+    //     mmap.cartrige[0x8000] = Byte(0xCA);
+    //     mmap.cartrige[0x8000 + CARTRIGE_BANK_SIZE - 1] = Byte(0xBE);
+    //     assert_eq!(mmap.read(Address(0x4000)), Byte(0xCA));
+    //     assert_eq!(mmap.read(Address(0x7FFF)), Byte(0xBE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_vram_0() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of VRAM bank 00
+    //     mmap.vram[0] = Byte(0xFA);
+    //     mmap.vram[VRAM_BANK_SIZE - 1] = Byte(0xFF);
+    //     assert_eq!(mmap.read(Address(0x8000)), Byte(0xFA));
+    //     assert_eq!(mmap.read(Address(0x9FFF)), Byte(0xFF));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_vram_1() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of VRAM bank 01
+    //     mmap.vram_bank = 1;
+    //     mmap.vram[0x2000] = Byte(0xFB);
+    //     mmap.vram[0x2000 + VRAM_BANK_SIZE - 1] = Byte(0xFE);
+    //     assert_eq!(mmap.read(Address(0x8000)), Byte(0xFB));
+    //     assert_eq!(mmap.read(Address(0x9FFF)), Byte(0xFE));
+    // }
+
+    // // TODO - test external ram + banks
+
+    // #[test]
+    // fn test_memory_map_read_wram_0() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of WRAM bank 00
+    //     mmap.wram[0] = Byte(0xFA);
+    //     mmap.wram[WRAM_BANK_SIZE - 1] = Byte(0xFF);
+    //     assert_eq!(mmap.read(Address(0xC000)), Byte(0xFA));
+    //     assert_eq!(mmap.read(Address(0xCFFF)), Byte(0xFF));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_wram_1() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of WRAM bank 01
+    //     mmap.wram[0x1000] = Byte(0xFB);
+    //     mmap.wram[0x1000 + WRAM_BANK_SIZE - 1] = Byte(0xFE);
+    //     assert_eq!(mmap.read(Address(0xD000)), Byte(0xFB));
+    //     assert_eq!(mmap.read(Address(0xDFFF)), Byte(0xFE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_wram_2() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of WRAM bank 02
+    //     mmap.wram_bank = 2;
+    //     mmap.wram[0x2000] = Byte(0xCA);
+    //     mmap.wram[0x2000 + WRAM_BANK_SIZE - 1] = Byte(0xBE);
+    //     assert_eq!(mmap.read(Address(0xD000)), Byte(0xCA));
+    //     assert_eq!(mmap.read(Address(0xDFFF)), Byte(0xBE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_oam() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of OAM (sprite attribute table)
+    //     mmap.oam[0x0] = Byte(0xCA);
+    //     mmap.oam[OAM_SIZE - 1] = Byte(0xFE);
+    //     assert_eq!(mmap.read(Address(0xFE00)), Byte(0xCA));
+    //     assert_eq!(mmap.read(Address(0xFE9F)), Byte(0xFE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_io_registers() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of IO Registers
+    //     mmap.io[0x0] = Byte(0xCA);
+    //     mmap.io[IO_SIZE - 1] = Byte(0xFE);
+    //     assert_eq!(mmap.read(Address(0xFF00)), Byte(0xCA));
+    //     assert_eq!(mmap.read(Address(0xFF7F)), Byte(0xFE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_hram() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     // Start + end of HRAM
+    //     mmap.hram[0x0] = Byte(0xCA);
+    //     mmap.hram[HRAM_SIZE - 1] = Byte(0xFE);
+    //     assert_eq!(mmap.read(Address(0xFF80)), Byte(0xCA));
+    //     assert_eq!(mmap.read(Address(0xFFFE)), Byte(0xFE));
+    // }
+
+    // #[test]
+    // fn test_memory_map_read_interrupt() {
+    //     let mut mmap = MemoryMap::new();
+
+    //     mmap.interrupt = Byte(0x10);
+    //     assert_eq!(mmap.read(Address(0xFFFF)), Byte(0x10));
+    // }
 }

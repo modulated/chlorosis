@@ -48,6 +48,12 @@ impl From<u16> for Address {
     }
 }
 
+impl From<usize> for Address {
+    fn from(value: usize) -> Self {
+        Self(value as u16)
+    }
+}
+
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(write!(f, "{:#06X}", self.0)?)
