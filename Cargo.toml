@@ -1,0 +1,15 @@
+[package]
+name = "gb_chloro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[[bin]]
+name = "dump"
+test = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
