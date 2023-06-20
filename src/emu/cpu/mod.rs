@@ -14,6 +14,7 @@ pub struct CentralProcessor {
     l: Byte,
     pc: Address,
     sp: Address,
+    interupt_master_enable: bool,
 }
 
 impl CentralProcessor {
@@ -38,6 +39,14 @@ impl CentralProcessor {
 
     pub const fn read_hl(&self) -> Address {
         Address(((self.h.0 as u16) << 8) + self.l.0 as u16)
+    }
+
+    pub fn dump_state(&self) {
+        println!("PC: {} SP: {}", self.pc, self.sp);
+        println!("A: {} F: {}", self.a, self.f);
+        println!("B: {} C: {}", self.b, self.c);
+        println!("D: {} E: {}", self.d, self.e);
+        println!("H: {} L: {}", self.h, self.l);
     }
 }
 
