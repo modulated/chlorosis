@@ -1,4 +1,4 @@
-use super::{audio::AudioProcessor, cpu::CentralProcessor, memory::MemoryMap, ppu::PixelProcessor};
+use super::{AudioProcessor, CentralProcessor, MemoryMap, PixelProcessor, Screen};
 
 #[derive(Debug, Default)]
 pub struct Device {
@@ -6,6 +6,7 @@ pub struct Device {
     cpu: CentralProcessor,
     ppu: PixelProcessor,
     audio: AudioProcessor,
+    screen: Screen,
 }
 
 impl Device {
@@ -26,8 +27,18 @@ impl Device {
         Ok(())
     }
 
+    pub fn load_boot(&mut self) {
+        let boot = include_bytes!("../../cgb_boot.bin");
+        self.mmap.load_cartrige(boot.to_vec());
+    }
+
     pub fn dump_memory(&mut self) {
         self.mmap.dump_cartrige();
+    }
+
+    pub fn dump_state(&self) {
+        println!("CPU State: ");
+        self.cpu.dump_state();
     }
 }
 
