@@ -55,7 +55,7 @@ mod test {
     #[test]
     fn test_load_file() {
         let mut dev = Device::new();
-        dev.load_from_file("test_roms/little-things-gb/firstwhite.gb")
+        dev.load_from_file("cgb_boot.bin")
             .unwrap();
     }
 }
