@@ -14,6 +14,13 @@ impl Device {
         Default::default()
     }
 
+    pub fn run(&mut self) {
+        loop {
+            //
+            self.cpu.cycle(&mut self.mmap);
+        }
+    }
+
     pub fn load_from_file(
         &mut self,
         path: impl AsRef<std::path::Path>,
