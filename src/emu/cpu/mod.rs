@@ -22,7 +22,7 @@ pub struct CentralProcessor {
     sp: Address,
     interupt_master_enable: bool,
     cost: u8,
-    cycle_count: u64
+    cycle_count: u64,
 }
 
 impl CentralProcessor {

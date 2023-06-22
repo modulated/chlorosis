@@ -59,7 +59,7 @@ impl CentralProcessor {
                 self.c = val;
                 self.cost = 2;
             }
-            // 0x11 
+            // 0x11
             LD_DE_d16(addr) => {
                 self.write_de(addr);
                 self.cost = 3;
@@ -85,14 +85,14 @@ impl CentralProcessor {
             // 0x20
             JR_NZ_s8(val) => {
                 let val = val.to_signed();
-                if !self.z_flag {         
-                    let addr = (self.pc.0 - 2) as i32 + val as i32;   
-                    assert!(addr > 0);        
+                if !self.z_flag {
+                    let addr = (self.pc.0 - 2) as i32 + val as i32;
+                    assert!(addr > 0);
                     self.pc = Address(addr as u16);
                     self.cost = 3;
                 } else {
                     self.cost = 2;
-                }    
+                }
             }
             // 0x21
             LD_HL_d16(l, h) => {
@@ -106,7 +106,7 @@ impl CentralProcessor {
                 mmap.write(addr, self.a);
                 self.write_hl(addr + 1);
                 self.cost = 2;
-            }                       
+            }
             // 0x23
             LD_HL_dec_A => {
                 let addr = self.read_hl();
@@ -211,7 +211,7 @@ impl CentralProcessor {
             // CB Extensions
             // 0xCB11
             RL_C => {
-                let old_cf = self.c_flag; 
+                let old_cf = self.c_flag;
                 self.clear_flags();
                 if self.c.is_bit_set(7) {
                     self.c_flag = true;
@@ -222,7 +222,7 @@ impl CentralProcessor {
                 }
                 if val.0 == 0 {
                     self.z_flag = true;
-                }               
+                }
                 self.cost = 2;
             }
             // 0xCB7C

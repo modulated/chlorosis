@@ -20,11 +20,11 @@ impl CentralProcessor {
             0x0C => INC_C,
             0x0D => DEC_C,
             0x0E => LD_C_d8(self.consume_byte(mmap)),
-            
+
             0x11 => LD_DE_d16(self.consume_pair_le(mmap)),
 
             0x17 => RLA,
-            
+
             0x1A => LD_A_DE,
 
             0x20 => JR_NZ_s8(self.consume_byte(mmap)),
@@ -44,7 +44,7 @@ impl CentralProcessor {
             0xAF => XOR_A,
 
             0xBC => CP_H,
-            
+
             0xC1 => POP_BC,
             0xC2 => JP_NZ_a16(self.consume_pair_le(mmap)),
             0xC3 => JP_a16(self.consume_pair_le(mmap)),
@@ -58,13 +58,8 @@ impl CentralProcessor {
             0xE1 => POP_HL,
             0xE2 => LD_aC_A,
 
-            _ => panic!(
-                "Unknown Opcode 0x{} at address {}",
-                op, current_address
-            ),
+            _ => panic!("Unknown Opcode 0x{} at address {}", op, current_address),
         }
-
-        
     }
 
     pub fn fetch_cb_instruction(&mut self, mmap: &mut MemoryMap) -> Opcode {
@@ -78,7 +73,9 @@ impl CentralProcessor {
             0x7C => BIT_7_H,
             _ => panic!(
                 "Unknown CB Opcode 0xCB{} at address {} + {}",
-                op, current_address - 1, current_address
+                op,
+                current_address - 1,
+                current_address
             ),
         }
     }

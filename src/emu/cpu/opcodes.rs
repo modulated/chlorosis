@@ -36,7 +36,7 @@ pub enum Opcode {
     LD_A_d8(Byte) = 0x3A,
 
     LD_C_A = 0x4F,
-    
+
     LD_HL_A = 0x77,
 
     XOR_A = 0xAF,
@@ -60,7 +60,6 @@ pub enum Opcode {
     RL_C = 0xCB11,
 
     BIT_7_H = 0xCB7C,
-
 }
 
 // impl std::fmt::Display for Opcode {
@@ -68,7 +67,7 @@ pub enum Opcode {
 //         if (self as u16) > 0xCA00 {
 //             Ok(write!(f, "{self} (0x{})", Byte(*self as u8))?)
 //         } else {
-//             Ok(write!(f, "{self} ({})", Byte(*self as u8))?)            
+//             Ok(write!(f, "{self} ({})", Byte(*self as u8))?)
 //         }
 //     }
 // }
