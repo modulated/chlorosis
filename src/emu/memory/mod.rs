@@ -64,7 +64,7 @@ impl MemoryMap {
         self.rom = buf.iter_mut().map(|x| Byte(*x)).collect()
     }
 
-    pub fn dump_cartrige(&mut self) {
+    pub fn dump_rom(&mut self) {
         for i in 0x0000..0x8000 {
             let byte = self.read(Address(i));
             if i % 32 == 0 {

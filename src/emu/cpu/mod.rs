@@ -22,6 +22,7 @@ pub struct CentralProcessor {
     sp: Address,
     interupt_master_enable: bool,
     cost: u8,
+    cycle_count: u64
 }
 
 impl CentralProcessor {
@@ -38,12 +39,16 @@ impl CentralProcessor {
         }
         // fetch instruction
         let op = self.fetch_instruction(mmap);
-        println!("{op:?}");
+        // println!("{op:?}");
 
         // execute instruction
         self.execute(mmap, op);
 
-        self.dump_state();
+        // self.dump_state();
+        self.cycle_count += 1;
+        if self.cycle_count % 1_000_000 == 0 {
+            println!("1MHz");
+        }
     }
 
     pub const fn read_bc(&self) -> Address {

@@ -6,6 +6,20 @@ impl Byte {
     pub const fn to_address(self) -> Address {
         Address(self.0 as u16)
     }
+
+    pub const fn is_bit_set(&self, n: u8) -> bool {
+        let mask = 1 << n;
+        self.0 & mask != 0
+    }
+
+    pub fn set_bit(&mut self, n: u8) {
+        let mask = 1 << n;
+        self.0 |= mask;
+    }
+
+    pub(crate) fn to_signed(self) -> i8 {
+        -((!self.0 + 1) as i8)
+    }
 }
 
 impl std::fmt::Display for Byte {
@@ -28,11 +42,51 @@ impl std::ops::Not for Byte {
     }
 }
 
+impl std::ops::Shl<u8> for Byte {
+    type Output = Self;
+
+    fn shl(self, rhs: u8) -> Self::Output {
+        Self(self.0 << rhs)
+    }
+}
+
+impl std::ops::Shr<u8> for Byte {
+    type Output = Self;
+
+    fn shr(self, rhs: u8) -> Self::Output {
+        Self(self.0 >> rhs)
+    }
+}
+
 impl Sub<Self> for Address {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
+    }
+}
+
+impl Sub<u8> for Address {
+    type Output = Self;
+
+    fn sub(self, rhs: u8) -> Self::Output {
+        Self(self.0 - rhs as u16)
+    }
+}
+
+impl Sub<i32> for Address {
+    type Output = Self;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        Self(self.0 - rhs as u16)
+    }
+}
+
+impl Sub<u16> for Address {
+    type Output = Self;
+
+    fn sub(self, rhs: u16) -> Self::Output {
+        Self(self.0 - rhs)
     }
 }
 
@@ -121,6 +175,18 @@ impl std::ops::SubAssign<i32> for Address {
 impl std::ops::SubAssign<Byte> for Address {
     fn sub_assign(&mut self, rhs: Byte) {
         self.0 = self.0 - (rhs.0 as u16);
+    }
+}
+
+impl std::ops::AddAssign<u8> for Byte {
+    fn add_assign(&mut self, rhs: u8) {
+        self.0 = self.0 + rhs;
+    }
+}
+
+impl std::ops::AddAssign<i32> for Byte {
+    fn add_assign(&mut self, rhs: i32) {
+        self.0 = self.0 + rhs as u8;
     }
 }
 

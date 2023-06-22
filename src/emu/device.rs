@@ -35,7 +35,7 @@ impl Device {
     }
 
     pub fn dump_memory(&mut self) {
-        self.mmap.dump_cartrige();
+        self.mmap.dump_rom();
     }
 
     pub fn dump_state(&self) {
