@@ -4,7 +4,8 @@ use constants::*;
 
 #[derive(Debug)]
 pub struct MemoryMap {
-    cartrige: Vec<Byte>,
+    boot: Vec<Byte>,
+    rom: Vec<Byte>,
     vram: Vec<Byte>,
     wram: Vec<Byte>,
     eram: Vec<Byte>,
@@ -24,8 +25,8 @@ impl MemoryMap {
 
     pub fn map(&mut self, address: Address) -> &mut Byte {
         match address.0 {
-            CARTRIGE_0_START..=CARTRIGE_0_END => &mut self.cartrige[address],
-            CARTRIGE_1_START..=CARTRIGE_1_END => {
+            ROM_0_START..=ROM_0_END => &mut self.cartrige[address],
+            ROM_1_START..=ROM_1_END => {
                 &mut self.cartrige[address + Address(CARTRIGE_1_START) * (self.cartrige_bank - 1)]
             }
             VRAM_START..=VRAM_END => {
