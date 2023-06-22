@@ -33,13 +33,13 @@ impl CentralProcessor {
         // return if cycle timer not 0
         if self.cost != 0 {
             self.cost -= 1;
-            println!("Tick");
+            // println!("Tick");
             return;
         }
         // fetch instruction
-        let op = self.fetch_instruction(mmap);        
-        println!("{op:?}");        
-        
+        let op = self.fetch_instruction(mmap);
+        println!("{op:?}");
+
         // execute instruction
         self.execute(mmap, op);
 
@@ -83,15 +83,19 @@ impl CentralProcessor {
     pub fn dump_state(&self) {
         println!("Cost: {}", self.cost);
         println!("PC: {} SP: {}", self.pc, self.sp);
-        println!("A: {} F: {}", self.a, self.f);
-        println!("B: {} C: {}", self.b, self.c);
-        println!("D: {} E: {}", self.d, self.e);
-        println!("H: {} L: {}", self.h, self.l);
-        println!("Flags- Z: {} N: {} H: {} C: {}", self.z_flag, self.n_flag, self.h_flag, self.c_flag);
+        println!(
+            "A: {} F: {} B: {} C: {} D: {} E: {} H: {} L: {}",
+            self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l
+        );
+        println!(
+            "Flags- Z: {} N: {} H: {} C: {}",
+            self.z_flag, self.n_flag, self.h_flag, self.c_flag
+        );
+        println!();
     }
 
     fn push_address(&mut self, mmap: &mut MemoryMap, addr: Address) {
-        let (h,l) = addr.split();
+        let (h, l) = addr.split();
         self.sp -= 1;
         mmap.write(self.sp, h);
         self.sp -= 1;
@@ -106,7 +110,7 @@ impl CentralProcessor {
         Address::from_pair(h, l)
     }
 
-    fn clear_flags(&mut self)  {
+    fn clear_flags(&mut self) {
         self.z_flag = false;
         self.n_flag = false;
         self.h_flag = false;
@@ -114,19 +118,19 @@ impl CentralProcessor {
     }
 
     fn write_bc(&mut self, addr: Address) {
-        let (b,c) = addr.split();
+        let (b, c) = addr.split();
         self.b = b;
         self.c = c;
     }
 
     fn write_de(&mut self, addr: Address) {
-        let (d,e) = addr.split();
+        let (d, e) = addr.split();
         self.d = d;
         self.e = e;
     }
 
     fn write_hl(&mut self, addr: Address) {
-        let (h,l) = addr.split();
+        let (h, l) = addr.split();
         self.h = h;
         self.l = l;
     }

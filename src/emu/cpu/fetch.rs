@@ -5,6 +5,7 @@ use super::{opcodes::Opcode, CentralProcessor};
 impl CentralProcessor {
     pub fn fetch_instruction(&mut self, mmap: &mut MemoryMap) -> Opcode {
         use Opcode::*;
+        let current_address = self.pc;
         let op = self.consume_byte(mmap);
 
         match op.0 {
@@ -31,7 +32,10 @@ impl CentralProcessor {
 
             0xE0 => LD_a8_A(self.consume_byte(mmap).to_address()),
 
-            _ => panic!("Unimplemented opcode 0x{}", op),
+            _ => panic!(
+                "Unimplemented Opcode 0x{} at address {}",
+                op, current_address
+            ),
         }
     }
 }

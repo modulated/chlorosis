@@ -1,7 +1,6 @@
 // MEMORY ADDRESS POSITION CONSTANTS
 pub const BOOT_ROM_START: u16 = 0x0000;
 pub const BOOT_ROM_END: u16 = 0x00FF;
-pub const CARTRIGE_ENTRY: u16 = 0x0100;
 pub const ROM_0_START: u16 = 0x0000;
 pub const ROM_0_END: u16 = 0x3FFF;
 pub const ROM_1_START: u16 = 0x4000;
@@ -36,6 +35,7 @@ pub const ROM_BANK_SIZE: usize = 0x4000; // 16 KB
 pub const OAM_SIZE: usize = 0xA0; // 160
 pub const HRAM_SIZE: usize = 0x7F; // 127
 pub const IO_SIZE: usize = 0x80; // 128
+pub const BOOT_SIZE: usize = 0x100; // 256
 
 // Interrupt flags
 bitflags::bitflags! {

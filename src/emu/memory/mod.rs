@@ -13,7 +13,7 @@ pub struct MemoryMap {
     hram: Vec<Byte>,
     io: Vec<Byte>,
     interrupt: Byte,
-    cartrige_bank: usize,
+    rom_bank: usize,
     vram_bank: usize,
     wram_bank: usize,
 }
@@ -25,9 +25,9 @@ impl MemoryMap {
 
     pub fn map(&mut self, address: Address) -> &mut Byte {
         match address.0 {
-            ROM_0_START..=ROM_0_END => &mut self.cartrige[address],
+            ROM_0_START..=ROM_0_END => &mut self.rom[address],
             ROM_1_START..=ROM_1_END => {
-                &mut self.cartrige[address + Address(CARTRIGE_1_START) * (self.cartrige_bank - 1)]
+                &mut self.rom[address + Address(ROM_1_START) * (self.rom_bank - 1)]
             }
             VRAM_START..=VRAM_END => {
                 &mut self.vram[address + (Address(VRAM_BANK_SIZE as u16) * self.vram_bank)
@@ -57,11 +57,11 @@ impl MemoryMap {
     }
 
     pub fn set_cartrige_bank(&mut self, value: usize) {
-        self.cartrige_bank = value;
+        self.rom_bank = value;
     }
 
     pub fn load_cartrige(&mut self, mut buf: Vec<u8>) {
-        self.cartrige = buf.iter_mut().map(|x| Byte(*x)).collect()
+        self.rom = buf.iter_mut().map(|x| Byte(*x)).collect()
     }
 
     pub fn dump_cartrige(&mut self) {
@@ -81,19 +81,28 @@ impl MemoryMap {
 
 impl Default for MemoryMap {
     fn default() -> Self {
-        Self {
-            cartrige: vec![],
+        let mut out = Self {
+            boot: include_bytes!("../../../dmg_boot.bin")
+                .iter()
+                .cloned()
+                .map(Byte)
+                .collect(),
+            rom: vec![Byte(0); ROM_BANK_SIZE],
             vram: vec![Byte(0); VRAM_SIZE],
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
             oam: vec![Byte(0); OAM_SIZE],
-            cartrige_bank: 1,
+            rom_bank: 1,
             vram_bank: 0,
             wram_bank: 1,
             hram: vec![Byte(0); HRAM_SIZE],
             io: vec![Byte(0); IO_SIZE],
             interrupt: Byte(0),
+        };
+        for i in BOOT_ROM_START..=BOOT_ROM_END {
+            out.rom[i as usize] = out.boot[i as usize];
         }
+        out
     }
 }
 
@@ -101,41 +110,40 @@ impl Default for MemoryMap {
 mod test {
     use super::*;
     use crate::emu::{
-        memory::{MemoryMap, CARTRIGE_BANK_SIZE},
+        memory::{MemoryMap, ROM_BANK_SIZE},
         Address, Byte,
     };
 
     #[test]
-    fn test_memory_map_cartrige_rom_0() {
+    fn test_memory_map_read_rom_0() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
 
-        // Start + end of Cartrige ROM bank 00
-        mmap.cartrige[0] = Byte(0xFA);
-        mmap.cartrige[CARTRIGE_BANK_SIZE - 1] = Byte(0xFF);
-        assert_eq!(mmap.read(Address(0x0)), Byte(0xFA));
+        // Start + end of ROM bank 00
+        mmap.rom[0] = Byte(0xFA);
+        mmap.rom[ROM_BANK_SIZE - 1] = Byte(0xFF);
+        assert_eq!(mmap.read(Address(0x0000)), Byte(0xFA));
         assert_eq!(mmap.read(Address(0x3FFF)), Byte(0xFF));
     }
     #[test]
-    fn test_memory_map_read_cartrige_rom_1() {
+    fn test_memory_map_read_rom_1() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+        mmap.rom.append(&mut vec![Byte(0); ROM_BANK_SIZE]);
 
-        // Start + end of Cartrige ROM bank 01
-        mmap.cartrige[0x4000] = Byte(0xAA);
-        mmap.cartrige[0x4000 + CARTRIGE_BANK_SIZE - 1] = Byte(0xB0);
+        // Start + end of ROM bank 01
+        mmap.rom[0x4000] = Byte(0xAA);
+        mmap.rom[0x4000 + ROM_BANK_SIZE - 1] = Byte(0xB0);
         assert_eq!(mmap.read(Address(0x4000)), Byte(0xAA));
         assert_eq!(mmap.read(Address(0x7FFF)), Byte(0xB0));
     }
     #[test]
-    fn test_memory_map_read_cartrige_rom_2() {
+    fn test_memory_map_read_rom_2() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+        mmap.rom.append(&mut vec![Byte(0); ROM_BANK_SIZE * 2]);
 
-        // Start + end of Cartrige ROM bank 02
-        mmap.cartrige_bank = 2;
-        mmap.cartrige[0x8000] = Byte(0xCA);
-        mmap.cartrige[0x8000 + CARTRIGE_BANK_SIZE - 1] = Byte(0xBE);
+        // Start + end of ROM bank 02
+        mmap.rom_bank = 2;
+        mmap.rom[0x8000] = Byte(0xCA);
+        mmap.rom[0x8000 + ROM_BANK_SIZE - 1] = Byte(0xBE);
         assert_eq!(mmap.read(Address(0x4000)), Byte(0xCA));
         assert_eq!(mmap.read(Address(0x7FFF)), Byte(0xBE));
     }
@@ -241,40 +249,40 @@ mod test {
     }
 
     #[test]
-    fn test_memory_map_write_cartrige_rom_0() {
+    fn test_memory_map_write_rom_0() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+        mmap.rom = vec![Byte(0); ROM_BANK_SIZE];
 
-        // Start + end of Cartrige ROM bank 00
+        // Start + end of ROM bank 00
         mmap.write(Address(0x0000), Byte(0xAA));
         mmap.write(Address(0x3FFF), Byte(0xEE));
-        assert_eq!(mmap.cartrige[0x0000], Byte(0xAA));
-        assert_eq!(mmap.cartrige[CARTRIGE_BANK_SIZE - 1], Byte(0xEE));
+        assert_eq!(mmap.rom[0x0000], Byte(0xAA));
+        assert_eq!(mmap.rom[ROM_BANK_SIZE - 1], Byte(0xEE));
     }
 
     #[test]
-    fn test_memory_map_write_cartrige_rom_1() {
+    fn test_memory_map_write_rom_1() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+        mmap.rom = vec![Byte(0); ROM_BANK_SIZE * 2];
 
-        // Start + end of Cartrige ROM bank 01
+        // Start + end of ROM bank 01
         mmap.write(Address(0x4000), Byte(0xAA));
         mmap.write(Address(0x7FFF), Byte(0xEE));
-        assert_eq!(mmap.cartrige[0x4000], Byte(0xAA));
-        assert_eq!(mmap.cartrige[0x4000 + CARTRIGE_BANK_SIZE - 1], Byte(0xEE));
+        assert_eq!(mmap.rom[0x4000], Byte(0xAA));
+        assert_eq!(mmap.rom[0x4000 + ROM_BANK_SIZE - 1], Byte(0xEE));
     }
 
     #[test]
-    fn test_memory_map_write_cartrige_rom_2() {
+    fn test_memory_map_write_rom_2() {
         let mut mmap = MemoryMap::new();
-        mmap.cartrige = vec![Byte(0); CARTRIGE_BANK_SIZE * 3];
+        mmap.rom = vec![Byte(0); ROM_BANK_SIZE * 3];
 
-        // Start + end of Cartrige ROM bank 02
-        mmap.cartrige_bank = 2;
+        // Start + end of ROM bank 02
+        mmap.rom_bank = 2;
         mmap.write(Address(0x4000), Byte(0xAA));
         mmap.write(Address(0x7FFF), Byte(0xEE));
-        assert_eq!(mmap.cartrige[0x8000], Byte(0xAA));
-        assert_eq!(mmap.cartrige[0x8000 + CARTRIGE_BANK_SIZE - 1], Byte(0xEE));
+        assert_eq!(mmap.rom[0x8000], Byte(0xAA));
+        assert_eq!(mmap.rom[0x8000 + ROM_BANK_SIZE - 1], Byte(0xEE));
     }
 
     #[test]

@@ -21,7 +21,7 @@ impl std::fmt::Debug for Byte {
 }
 
 impl std::ops::Not for Byte {
-    type Output=Self;
+    type Output = Self;
 
     fn not(self) -> Self::Output {
         Self(!self.0)
@@ -218,7 +218,7 @@ mod test {
     #[test]
     fn test_split_addr() {
         let a = Address(0x1234);
-        let (h,l) = a.split();
+        let (h, l) = a.split();
 
         assert_eq!(h, Byte(0x12));
         assert_eq!(l, Byte(0x34))

@@ -34,11 +34,6 @@ impl Device {
         Ok(())
     }
 
-    pub fn load_boot(&mut self) {
-        let boot = include_bytes!("../../cgb_boot.bin");
-        self.mmap.load_cartrige(boot.to_vec());
-    }
-
     pub fn dump_memory(&mut self) {
         self.mmap.dump_cartrige();
     }
@@ -55,7 +50,6 @@ mod test {
     #[test]
     fn test_load_file() {
         let mut dev = Device::new();
-        dev.load_from_file("cgb_boot.bin")
-            .unwrap();
+        dev.load_from_file("cgb_boot.bin").unwrap();
     }
 }

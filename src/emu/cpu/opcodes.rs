@@ -23,7 +23,7 @@ pub enum Opcode {
 
     LD_SP_d16(Address) = 0x31,
     LD_A_d8(Byte) = 0x3A,
-    
+
     JP_NZ_a16(Address) = 0xC2,
     JP_a16(Address) = 0xC3,
 

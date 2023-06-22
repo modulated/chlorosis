@@ -1,4 +1,4 @@
-use crate::emu::{MemoryMap, Address};
+use crate::emu::{Address, MemoryMap};
 
 use super::{opcodes::Opcode, CentralProcessor};
 
@@ -7,7 +7,11 @@ impl CentralProcessor {
         use Opcode::*;
         assert!(self.cost == 0);
         match op {
-            NOP => {} // 0x00
+            NOP => {
+                // 0x00
+                println!("{}: NOP", self.pc);
+                self.cost = 1;
+            }
             //
             DEC_C => {
                 self.c -= 0x1;
@@ -18,17 +22,20 @@ impl CentralProcessor {
                 }
                 self.cost = 1;
             }
-            LD_C_d8(val) => { // 0x0E
+            LD_C_d8(val) => {
+                // 0x0E
                 self.c = val;
                 self.cost = 2;
             }
 
-            LD_HL_d16(l, h) => { // 0x21
+            LD_HL_d16(l, h) => {
+                // 0x21
                 self.h = h;
                 self.l = l;
                 self.cost = 3;
             }
-            LD_HL_inc_A => { // 0x22
+            LD_HL_inc_A => {
+                // 0x22
                 let addr = self.read_hl();
                 mmap.write(addr, self.a);
                 self.write_hl(addr + 1);
@@ -42,23 +49,27 @@ impl CentralProcessor {
                 self.cost = 1;
             }
 
-            LD_SP_d16(val) => { // 0x31
+            LD_SP_d16(val) => {
+                // 0x31
                 self.sp = val;
                 self.cost = 3;
             }
-            LD_A_d8(val) => { // 0x3E
+            LD_A_d8(val) => {
+                // 0x3E
                 self.a = val;
                 self.cost = 2;
             }
 
-            XOR_A => { //0xAF
+            XOR_A => {
+                //0xAF
                 self.a ^= self.a;
-                self.cost = 1;
                 self.clear_flags();
                 self.z_flag = true;
+                self.cost = 1;
             }
 
-            JP_NZ_a16(addr) => { // 0xC2
+            JP_NZ_a16(addr) => {
+                // 0xC2
                 if self.z_flag {
                     self.pc = addr;
                     self.cost = 4;
@@ -66,12 +77,14 @@ impl CentralProcessor {
                     self.cost = 3;
                 }
             }
-            JP_a16(addr) => { // 0xC3
+            JP_a16(addr) => {
+                // 0xC3
                 self.pc = addr;
                 self.cost = 4;
             }
 
-            LD_a8_A(addr) => { // 0xE0
+            LD_a8_A(addr) => {
+                // 0xE0
                 let target = Address(0xFF00) + addr;
                 mmap.write(target, self.a);
                 self.cost = 3;
@@ -83,12 +96,8 @@ impl CentralProcessor {
                 self.cost = 6;
             }
 
-
-
             _ => panic!("Unimplemented execution of {:?}", op),
         }
-
-        println!("Tock");
         self.cost -= 1;
     }
 }
