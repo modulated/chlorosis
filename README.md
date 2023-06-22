@@ -1,5 +1,5 @@
-# fungbc
-GBC emulator
+# Chlorosis
+Gameboy and Gameboy Color emulator
 
 ## Memory
 - 32 KB Work RAM
@@ -43,4 +43,4 @@ GBC emulator
 
 ## Sound
 - 4 channel stereo
-- 2 PWM oscs, 1 noise, 1 triangle
+- 2 PWM oscs, 1 noise, 1 programmable oscillator
