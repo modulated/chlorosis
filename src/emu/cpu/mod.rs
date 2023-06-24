@@ -88,7 +88,7 @@ impl CentralProcessor {
             self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l
         );
         println!(
-            "Flags- Z: {} N: {} H: {} C: {}",
+            "Z: {} N: {} H: {} C: {}",
             self.z_flag, self.n_flag, self.h_flag, self.c_flag
         );
         println!();

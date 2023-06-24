@@ -6,5 +6,5 @@ fn main() {
         .expect("Cannot open ROM");
     dev.dump_cartrige_header();
     // dev.dump_memory();
-    // dev.run();
+    dev.run();
 }
