@@ -1,5 +1,6 @@
 use super::{memory::MemoryMap, types::SignedByte, Address, Byte};
 
+mod arith;
 mod execute;
 mod fetch;
 mod macros;
@@ -110,21 +111,6 @@ impl CentralProcessor {
         Address::from_pair(h, l)
     }
 
-    fn clear_flags(&mut self) {
-        self.z_flag = false;
-        self.n_flag = false;
-        self.h_flag = false;
-        self.c_flag = false;
-    }
-
-    fn check_zero(&mut self, val: Byte) {
-        if val.0 == 0 {
-            self.z_flag = true;
-        } else {
-            self.z_flag = false;
-        }
-    }
-
     fn write_bc(&mut self, addr: Address) {
         let (b, c) = addr.split();
         self.b = b;
@@ -141,48 +127,6 @@ impl CentralProcessor {
         let (h, l) = addr.split();
         self.h = h;
         self.l = l;
-    }
-
-    fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
-        let res = a.0.wrapping_add(b.0);
-        if (res < a.0) || (res < b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
-    }
-
-    fn check_carry_add_address(&mut self, a: Address, b: Address) {
-        let res = a.0.wrapping_add(b.0);
-        if (res < a.0) || (res < b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
-    }
-
-    fn check_half_carry_add_byte(&mut self, a: Byte, b: Byte) {
-        if (((a.0 & 0xF).wrapping_add(b.0 & 0xF)) & 0x10) == 0x10 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
-    }
-
-    fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
-        if (((a.0 & 0xFFF).wrapping_add(b.0 & 0xFFF)) & 0x1000) == 0x1000 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
-    }
-
-    fn check_half_carry_sub_byte(&mut self, a: Byte, b: Byte) {
-        if (((a.0 & 0xF).wrapping_sub(b.0 & 0xF)) & 0x10) == 0x10 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
     }
 }
 

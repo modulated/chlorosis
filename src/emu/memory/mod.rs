@@ -76,7 +76,7 @@ impl MemoryMap {
     }
 
     pub fn dump_rom(&mut self) {
-        for i in ROM_0_START..ROM_1_END {
+        for i in ROM_0_START..=ROM_1_END {
             let byte = self.read(Address(i));
             if i % 32 == 0 {
                 println!();
@@ -98,7 +98,7 @@ impl Default for MemoryMap {
                 .cloned()
                 .map(Byte)
                 .collect(),
-            rom: vec![Byte(0); ROM_BANK_SIZE],
+            rom: vec![Byte(0); ROM_BANK_SIZE * 2],
             vram: vec![Byte(0); VRAM_SIZE],
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
