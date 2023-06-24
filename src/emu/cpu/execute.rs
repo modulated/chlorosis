@@ -396,6 +396,7 @@ impl CentralProcessor {
                 self.a = val;
                 self.cost = 2;
             }
+            // 0x3F
             CCF => {
                 self.c_flag = !self.c_flag;
                 self.n_flag = false;
@@ -405,37 +406,344 @@ impl CentralProcessor {
             // Row 3
 
             // Row 4
+            // 0x40
+            LD_B_B => {
+                // self.b = self.b;
+                self.cost = 1;
+            }
+            // 0x41
+            LD_B_C => {
+                self.b = self.c;
+                self.cost = 1;
+            }
+            // 0x42
+            LD_B_D => {
+                self.b = self.d;
+                self.cost = 1;
+            }
+            // 0x43
+            LD_B_E => {
+                self.b = self.e;
+                self.cost = 1;
+            }
+            // 0x44
+            LD_B_H => {
+                self.b = self.h;
+                self.cost = 1;
+            }
+            // 0x45
+            LD_B_L => {
+                self.b = self.l;
+                self.cost = 1;
+            }
+            // 0x46
+            LD_B_aHL => {
+                self.b = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
+            // 0x47
+            LD_B_A => {
+                self.b = self.a;
+                self.cost = 1;
+            }
+            // 0x48
+            LD_C_B => {
+                self.c = self.b;
+                self.cost = 1;
+            }
+            // 0x49
+            LD_C_C => {
+                // self.c = self.c;
+                self.cost = 1;
+            }
+            // 0x4A
+            LD_C_D => {
+                self.c = self.d;
+                self.cost = 1;
+            }
+            // 0x4B
+            LD_C_E => {
+                self.c = self.e;
+                self.cost = 1;
+            }
+            // 0x4C
+            LD_C_H => {
+                self.c = self.h;
+                self.cost = 1;
+            }
+            // 0x4D
+            LD_C_L => {
+                self.c = self.l;
+                self.cost = 1;
+            }
+            // 0x4E
+            LD_C_aHL => {
+                self.c = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
             // 0x4F
             LD_C_A => {
                 self.c = self.a;
                 self.cost = 1;
             }
+            // Row 4
 
+            // Row 5
+            // 0x50
+            LD_D_B => {
+                self.d = self.b;
+                self.cost = 1;
+            }
+            // 0x51
+            LD_D_C => {
+                self.d = self.c;
+                self.cost = 1;
+            }
+            // 0x52
+            LD_D_D => {
+                // self.d = self.d;
+                self.cost = 1;
+            }
+            // 0x53
+            LD_D_E => {
+                self.d = self.e;
+                self.cost = 1;
+            }
+            // 0x54
+            LD_D_H => {
+                self.d = self.h;
+                self.cost = 1;
+            }
+            // 0x55
+            LD_D_L => {
+                self.d = self.l;
+                self.cost = 1;
+            }
+            // 0x56
+            LD_D_aHL => {
+                self.d = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
             // 0x57
             LD_D_A => {
                 self.d = self.a;
                 self.cost = 1;
             }
+            // 0x58
+            LD_E_B => {
+                self.e = self.b;
+                self.cost = 1;
+            }
+            // 0x59
+            LD_E_C => {
+                self.e = self.c;
+                self.cost = 1;
+            }
+            // 0x5A
+            LD_E_D => {
+                self.e = self.d;
+                self.cost = 1;
+            }
+            // 0x5B
+            LD_E_E => {
+                // self.e = self.e;
+                self.cost = 1;
+            }
+            // 0x5C
+            LD_E_H => {
+                self.e = self.h;
+                self.cost = 1;
+            }
+            // 0x5D
+            LD_E_L => {
+                self.e = self.l;
+                self.cost = 1;
+            }
+            // 0x5E
+            LD_E_aHL => {
+                self.e = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
+            // 0x5F
+            LD_E_A => {
+                self.e = self.a;
+                self.cost = 1;
+            }
+            // Row 5
 
+            // Row 6
+            // 0x60
+            LD_H_B => {
+                self.h = self.b;
+                self.cost = 1;
+            }
+            // 0x61
+            LD_H_C => {
+                self.h = self.c;
+                self.cost = 1;
+            }
+            // 0x62
+            LD_H_D => {
+                self.h = self.d;
+                self.cost = 1;
+            }
+            // 0x63
+            LD_H_E => {
+                self.h = self.e;
+                self.cost = 1;
+            }
+            // 0x64
+            LD_H_H => {
+                // self.h = self.h;
+                self.cost = 1;
+            }
+            // 0x65
+            LD_H_L => {
+                self.h = self.l;
+                self.cost = 1;
+            }
+            // 0x66
+            LD_H_aHL => {
+                self.h = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
             // 0x67
             LD_H_A => {
                 self.h = self.a;
                 self.cost = 1;
             }
-
-            // 0x77
-            LD_HL_A => {
-                let addr = self.read_hl();
-                mmap.write(addr, self.a);
+            // 0x68
+            LD_L_B => {
+                self.l = self.b;
+                self.cost = 1;
+            }
+            // 0x69
+            LD_L_C => {
+                self.l = self.c;
+                self.cost = 1;
+            }
+            // 0x6A
+            LD_L_D => {
+                self.l = self.d;
+                self.cost = 1;
+            }
+            // 0x6B
+            LD_L_E => {
+                self.l = self.e;
+                self.cost = 1;
+            }
+            // 0x6C
+            LD_L_H => {
+                self.l = self.h;
+                self.cost = 1;
+            }
+            // 0x6D
+            LD_L_L => {
+                // self.l = self.l;
+                self.cost = 1;
+            }
+            // 0x6E
+            LD_L_aHL => {
+                self.l = mmap.read(self.read_hl());
                 self.cost = 2;
             }
+            // 0x6F
+            LD_L_A => {
+                self.l = self.a;
+                self.cost = 1;
+            }
+            // Row 6
 
+            // Row 7
+            // 0x70
+            LD_aHL_B => {
+                mmap.write(self.read_hl(), self.b);
+                self.cost = 2;
+            }
+            // 0x71
+            LD_aHL_C => {
+                mmap.write(self.read_hl(), self.c);
+                self.cost = 2;
+            }
+            // 0x72
+            LD_aHL_D => {
+                mmap.write(self.read_hl(), self.d);
+                self.cost = 2;
+            }
+            // 0x73
+            LD_aHL_E => {
+                mmap.write(self.read_hl(), self.e);
+                self.cost = 2;
+            }
+            // 0x74
+            LD_aHL_H => {
+                mmap.write(self.read_hl(), self.h);
+                self.cost = 2;
+            }
+            // 0x75
+            LD_aHL_L => {
+                mmap.write(self.read_hl(), self.l);
+                self.cost = 2;
+            }
+            // 0x76
+            HALT => {
+                // TODO: implement
+                // STOP system clock
+                // Cancelled by interrupt or reset
+                // if interrupt master enable set PC is pushed to stack and jump to interrupt address
+                self.cost = 1;
+                unimplemented!();
+            }
+            // 0x77
+            LD_aHL_A => {
+                mmap.write(self.read_hl(), self.a);
+                self.cost = 2;
+            }
+            // 0x78
+            LD_A_B => {
+                self.a = self.b;
+                self.cost = 1;
+            }
+            // 0x79
+            LD_A_C => {
+                self.a = self.c;
+                self.cost = 1;
+            }
+            // 0x7A
+            LD_A_D => {
+                self.a = self.d;
+                self.cost = 1;
+            }
             // 0x7B
             LD_A_E => {
                 self.a = self.e;
                 self.cost = 1;
             }
+            // 0x7C
+            LD_A_H => {
+                self.a = self.h;
+                self.cost = 1;
+            }
+            // 0x7D
+            LD_A_L => {
+                self.a = self.l;
+                self.cost = 1;
+            }
+            // 0x7E
+            LD_A_aHL => {
+                self.a = mmap.read(self.read_hl());
+                self.cost = 2;
+            }
+            // 0x7F
+            LD_A_A => {
+                // self.a = self.a;
+                self.cost = 1;
+            }
+            // Row 7
 
+            // Row 8
+
+            // Row 9
             // 0x90
             SUB_B => {
                 self.sub(self.b);

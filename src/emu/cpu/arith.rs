@@ -1,9 +1,9 @@
-use crate::emu::{Byte, Address};
+use crate::emu::{Address, Byte};
 
 use super::CentralProcessor;
 
 impl CentralProcessor {
-	pub fn clear_flags(&mut self) {
+    pub fn clear_flags(&mut self) {
         self.z_flag = false;
         self.n_flag = false;
         self.h_flag = false;
@@ -18,21 +18,21 @@ impl CentralProcessor {
         }
     }
 
-	pub fn sub(&mut self, val: Byte) {
-		let dif = self.a.0.wrapping_sub(val.0);
-		self.check_zero(Byte(dif));
-		self.check_half_carry_sub_byte(self.a, val);
-		self.check_carry_sub_byte(self.a, val);
-		self.n_flag = true;
-	}
+    pub fn sub(&mut self, val: Byte) {
+        let dif = self.a.0.wrapping_sub(val.0);
+        self.check_zero(Byte(dif));
+        self.check_half_carry_sub_byte(self.a, val);
+        self.check_carry_sub_byte(self.a, val);
+        self.n_flag = true;
+    }
 
-	pub fn xor(&mut self, val: Byte) {
-		self.a ^= val;
-		self.clear_flags();
-		self.check_zero(self.a);
-	}
+    pub fn xor(&mut self, val: Byte) {
+        self.a ^= val;
+        self.clear_flags();
+        self.check_zero(self.a);
+    }
 
-	// CHECK AND SET C AND H FLAGS
+    // CHECK AND SET C AND H FLAGS
     pub fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
         let res = a.0.wrapping_add(b.0);
         if (res < a.0) || (res < b.0) {

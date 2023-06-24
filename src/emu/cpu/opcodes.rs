@@ -84,17 +84,80 @@ pub enum Opcode {
     // Row 3
 
     // Row 4
+    LD_B_B = 0x40,
+    LD_B_C = 0x41,
+    LD_B_D = 0x42,
+    LD_B_E = 0x43,
+    LD_B_H = 0x44,
+    LD_B_L = 0x45,
+    LD_B_aHL = 0x46,
+    LD_B_A = 0x47,
+    LD_C_B = 0x48,
+    LD_C_C = 0x49,
+    LD_C_D = 0x4A,
+    LD_C_E = 0x4B,
+    LD_C_H = 0x4C,
+    LD_C_L = 0x4D,
+    LD_C_aHL = 0x4E,
     LD_C_A = 0x4F,
+    // Row 4
 
-
+    // Row 5
+    LD_D_B = 0x50,
+    LD_D_C = 0x51,
+    LD_D_D = 0x52,
+    LD_D_E = 0x53,
+    LD_D_H = 0x54,
+    LD_D_L = 0x55,
+    LD_D_aHL = 0x56,
     LD_D_A = 0x57,
+    LD_E_B = 0x58,
+    LD_E_C = 0x59,
+    LD_E_D = 0x5A,
+    LD_E_E = 0x5B,
+    LD_E_H = 0x5C,
+    LD_E_L = 0x5D,
+    LD_E_aHL = 0x5E,
+    LD_E_A = 0x5F,
+    // Row 5
 
+    // Row 6
+    LD_H_B = 0x60,
+    LD_H_C = 0x61,
+    LD_H_D = 0x62,
+    LD_H_E = 0x63,
+    LD_H_H = 0x64,
+    LD_H_L = 0x65,
+    LD_H_aHL = 0x66,
     LD_H_A = 0x67,
+    LD_L_B = 0x68,
+    LD_L_C = 0x69,
+    LD_L_D = 0x6A,
+    LD_L_E = 0x6B,
+    LD_L_H = 0x6C,
+    LD_L_L = 0x6D,
+    LD_L_aHL = 0x6E,
+    LD_L_A = 0x6F,
+    // Row 6
 
-    LD_HL_A = 0x77,
-
+    // Row 7
+    LD_aHL_B = 0x70,
+    LD_aHL_C = 0x71,
+    LD_aHL_D = 0x72,
+    LD_aHL_E = 0x73,
+    LD_aHL_H = 0x74,
+    LD_aHL_L = 0x75,
+    HALT = 0x76,
+    LD_aHL_A = 0x77,
+    LD_A_B = 0x78,
+    LD_A_C = 0x79,
+    LD_A_D = 0x7A,
     LD_A_E = 0x7B,
-
+    LD_A_H = 0x7C,
+    LD_A_L = 0x7D,
+    LD_A_aHL = 0x7E,
+    LD_A_A = 0x7F,
+    // Row 7
     SUB_B = 0x90,
 
     XOR_A = 0xAF,

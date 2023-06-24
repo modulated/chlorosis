@@ -24,6 +24,6 @@ macro_rules! addition_register_pairs {
         $cpu.check_half_carry_add_address($a, $b);
         $cpu.check_carry_add_address($a, $b);
         $write($a + $b);
-        $cpu.n_flag = false;        
+        $cpu.n_flag = false;
     };
 }
