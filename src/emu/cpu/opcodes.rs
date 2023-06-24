@@ -7,6 +7,7 @@ use crate::emu::{Address, Byte};
 #[allow(non_camel_case_types)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Opcode {
+    // 0 Row
     NOP = 0x00,
     LD_BC_d16(Address) = 0x01,
     LD_BC_A = 0x02,
@@ -14,11 +15,19 @@ pub enum Opcode {
     INC_B = 0x04,
     DEC_B = 0x05,
     LD_B_d8(Byte) = 0x06,
-
+    RLCA = 0x07,
+    LD_a16_SP(Address) = 0x08,
+    ADD_HL_BC = 0x09,
+    LD_A_BC = 0x0A,
+    DEC_BC = 0x0B,
     INC_C = 0x0C,
     DEC_C = 0x0D,
     LD_C_d8(Byte) = 0x0E,
+    RRCA = 0x0F,
+    // 0 Row
 
+    // 1 Row
+    STOP(Byte) = 0x10,
     LD_DE_d16(Address) = 0x11,
 
     RLA = 0x17,

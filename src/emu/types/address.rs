@@ -1,4 +1,4 @@
-use std::ops::{Sub, Add, Mul, IndexMut};
+use std::ops::{Add, IndexMut, Mul, Sub};
 
 use super::Byte;
 
@@ -170,7 +170,6 @@ impl Add<u16> for Address {
         Self(self.0 + rhs)
     }
 }
-
 
 impl std::ops::Index<Address> for Vec<Byte> {
     type Output = Byte;

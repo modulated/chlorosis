@@ -1,4 +1,8 @@
-use crate::emu::{Address, MemoryMap};
+use crate::{
+    addition_register_pairs, decrement_register,
+    emu::{Address, Byte, MemoryMap},
+    increment_register,
+};
 
 use super::{opcodes::Opcode, CentralProcessor};
 
@@ -7,6 +11,7 @@ impl CentralProcessor {
         use Opcode::*;
         assert!(self.cost == 0);
         match op {
+            // Row 0
             // 0x00
             NOP => {
                 println!("{}: NOP", self.pc);
@@ -14,50 +19,99 @@ impl CentralProcessor {
                 mmap.dump_rom();
                 self.cost = 1;
             }
+            // 0x01
+            LD_BC_d16(addr) => {
+                self.write_bc(addr);
+                self.cost = 3;
+            }
+            // 0x02
+            LD_BC_A => {
+                let addr = self.read_bc();
+                self.a = mmap.read(addr);
+                self.cost = 2;
+            }
+            // 0x03
+            INC_BC => {
+                self.write_bc(self.read_bc() + 1);
+                self.cost = 2;
+            }
+            // 0x04
+            INC_B => {
+                increment_register!(self, self.b);
+            }
+            // 0x05
             DEC_B => {
-                self.b -= 1;
-                if self.b.0 == 0 {
-                    self.z_flag = true;
-                } else {
-                    self.z_flag = false;
-                }
-                self.n_flag = true;
-                // TODO H flag
-                self.cost = 1;
+                decrement_register!(self, self.b);
             }
             // 0x06
             LD_B_d8(val) => {
                 self.b = val;
                 self.cost = 2;
             }
+            // 0x07
+            RLCA => {
+                self.clear_flags();
+                self.c_flag = self.a.is_bit_set(7);
+                self.a = self.a << 1;
+                self.a.write_bit(0, self.c_flag);
+                self.cost = 1;
+            }
+            // 0x08
+            LD_a16_SP(addr) => {
+                let (h, l) = self.sp.split();
+                mmap.write(addr, l);
+                mmap.write(addr + 1, h);
+                self.cost = 5;
+            }
+            // 0x09
+            #[allow(clippy::redundant_closure_call)]
+            ADD_HL_BC => {
+                let bc = self.read_bc();
+                let hl = self.read_hl();
+                addition_register_pairs!(self, bc, hl, (|x| { self.write_hl(x) }));
+            }
+            // 0x0A
+            LD_A_BC => {
+                self.a = mmap.read(self.read_bc());
+                self.cost = 2;
+            }
+            // 0x0B
+            DEC_BC => {
+                self.write_bc(self.read_bc() - 1);
+                self.cost = 2;
+            }
             // 0x0C
             INC_C => {
-                self.c += 1;
-                if self.c.0 == 0 {
-                    self.z_flag = true;
-                } else {
-                    self.z_flag = false;
-                }
-                self.n_flag = false;
-                // TODO H flag
-                self.cost = 1;
+                increment_register!(self, self.c);
             }
             // 0x0D
             DEC_C => {
-                self.c -= 0x1;
-                if self.c.0 == 0 {
-                    self.z_flag = true;
-                } else {
-                    self.z_flag = false;
-                }
-                self.n_flag = true;
-                // TODO H flag
-                self.cost = 1;
+                decrement_register!(self, self.c);
             }
             // 0x0E
             LD_C_d8(val) => {
                 self.c = val;
                 self.cost = 2;
+            }
+            // 0x0F
+            RRCA => {
+                self.clear_flags();
+                self.c_flag = self.a.is_bit_set(0);
+                self.a = self.a >> 1;
+                self.a.write_bit(7, self.c_flag);
+                self.cost = 1;
+            }
+            // Row 0
+
+            // Row 1
+            // 0x10
+            STOP(_) => {
+                // TODO: Implement
+                // IF all IE flags reset AND input P10 to P13 are LOW
+                // STOP SYSTEM CLOCK and OSCILLATOR CIRCUIT and LCD controller
+                // Cancelled by RESET signal
+
+                panic!("Unimplemented STOP");
             }
             // 0x11
             LD_DE_d16(addr) => {

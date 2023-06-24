@@ -2,6 +2,7 @@ use super::{memory::MemoryMap, Address, Byte};
 
 mod execute;
 mod fetch;
+mod macros;
 mod opcodes;
 
 #[derive(Debug, Default)]
@@ -45,10 +46,6 @@ impl CentralProcessor {
         self.execute(mmap, op);
 
         // self.dump_state();
-        self.cycle_count += 1;
-        if self.cycle_count % 1_000_000 == 0 {
-            println!("1MHz");
-        }
     }
 
     pub const fn read_bc(&self) -> Address {
@@ -114,6 +111,14 @@ impl CentralProcessor {
         self.c_flag = false;
     }
 
+    fn check_zero(&mut self, val: Byte) {
+        if val.0 == 0 {
+            self.z_flag = true;
+        } else {
+            self.z_flag = false;
+        }
+    }
+
     fn write_bc(&mut self, addr: Address) {
         let (b, c) = addr.split();
         self.b = b;
@@ -130,6 +135,48 @@ impl CentralProcessor {
         let (h, l) = addr.split();
         self.h = h;
         self.l = l;
+    }
+
+    fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
+        let res = a.0.wrapping_add(b.0);
+        if (res < a.0) || (res < b.0) {
+            self.c_flag = true;
+        } else {
+            self.c_flag = false;
+        }
+    }
+
+    fn check_carry_add_address(&mut self, a: Address, b: Address) {
+        let res = a.0.wrapping_add(b.0);
+        if (res < a.0) || (res < b.0) {
+            self.c_flag = true;
+        } else {
+            self.c_flag = false;
+        }
+    }
+
+    fn check_half_carry_add_byte(&mut self, a: Byte, b: Byte) {
+        if (((a.0 & 0xF).wrapping_add(b.0 & 0xF)) & 0x10) == 0x10 {
+            self.h_flag = true;
+        } else {
+            self.h_flag = false;
+        }
+    }
+
+    fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
+        if (((a.0 & 0xFFF).wrapping_add(b.0 & 0xFFF)) & 0x1000) == 0x1000 {
+            self.h_flag = true;
+        } else {
+            self.h_flag = false;
+        }
+    }
+
+    fn check_half_carry_sub_byte(&mut self, a: Byte, b: Byte) {
+        if (((a.0 & 0xF).wrapping_sub(b.0 & 0xF)) & 0x10) == 0x10 {
+            self.h_flag = true;
+        } else {
+            self.h_flag = false;
+        }
     }
 }
 
@@ -160,5 +207,34 @@ mod test {
         assert_eq!(cpu.pop_address(&mut mmap), Address(0x9ABC));
         assert_eq!(cpu.pop_address(&mut mmap), Address(0x5678));
         assert_eq!(cpu.pop_address(&mut mmap), Address(0x1234));
+    }
+
+    #[test]
+    fn test_carry_add_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_carry_add_byte(Byte(0x80), Byte(0x80));
+        assert!(cpu.c_flag);
+        cpu.check_carry_add_byte(Byte(0x0F), Byte(0x70));
+        assert!(!cpu.c_flag);
+    }
+
+    fn test_half_carry_add_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_half_carry_add_byte(Byte(0x08), Byte(0x08));
+        assert!(cpu.h_flag);
+        cpu.check_half_carry_add_byte(Byte(0x04), Byte(0x10));
+        assert!(!cpu.h_flag);
+        cpu.check_half_carry_add_byte(Byte(0x08), Byte(0x01));
+        assert!(!cpu.h_flag);
+    }
+
+    fn test_half_carry_sub_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_half_carry_sub_byte(Byte(0x01), Byte(0x00));
+        assert!(cpu.h_flag);
+        cpu.check_half_carry_sub_byte(Byte(0x14), Byte(0x10));
+        assert!(!cpu.h_flag);
+        cpu.check_half_carry_sub_byte(Byte(0x08), Byte(0x01));
+        assert!(!cpu.h_flag);
     }
 }

@@ -1,3 +1,5 @@
+use std::ops::{Add, Sub};
+
 use super::Address;
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -16,6 +18,14 @@ impl Byte {
     pub fn set_bit(&mut self, n: u8) {
         let mask = 1 << n;
         self.0 |= mask;
+    }
+
+    pub fn write_bit(&mut self, n: u8, set: bool) {
+        if set {
+            self.0 |= 1 << n;
+        } else {
+            self.0 &= !(1 << n)
+        }
     }
 
     pub const fn to_signed(self) -> i8 {
@@ -40,6 +50,22 @@ impl std::ops::Not for Byte {
 
     fn not(self) -> Self::Output {
         Self(!self.0)
+    }
+}
+
+impl Add<Self> for Byte {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub<Self> for Byte {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
     }
 }
 
@@ -92,5 +118,19 @@ impl std::ops::BitXorAssign<Self> for Byte {
 impl std::ops::BitAndAssign<Self> for Byte {
     fn bitand_assign(&mut self, rhs: Self) {
         self.0 &= rhs.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::emu::Byte;
+
+    #[test]
+    fn test_write_bit() {
+        let mut b = Byte(0b00101010);
+        b.write_bit(2, true);
+        assert_eq!(b, Byte(0b00101110));
+        b.write_bit(5, false);
+        assert_eq!(b, Byte(0b00001110));
     }
 }
