@@ -145,7 +145,7 @@ impl CentralProcessor {
             // 0x17
             RLA => {
                 let prev = self.c_flag;
-                self.c_flag = self.a.is_bit_set(7); 
+                self.c_flag = self.a.is_bit_set(7);
                 let mut val = self.a << 1;
                 val.write_bit(0, prev);
                 self.cost = 1;
@@ -182,33 +182,32 @@ impl CentralProcessor {
             }
             // 0x1E
             LD_E_d8(val) => {
-               self.e = val;
-               self.cost = 2; 
+                self.e = val;
+                self.cost = 2;
             }
             // 0x1F
             RRA => {
                 let prev = self.c_flag;
-                self.c_flag = self.a.is_bit_set(0); 
+                self.c_flag = self.a.is_bit_set(0);
                 let mut val = self.a >> 1;
                 val.write_bit(7, prev);
-                self.cost = 1;              
+                self.cost = 1;
             }
             // Row 1
 
             // Row 2
             // 0x20
-            JR_NZ_s8(val) => {
+            JR_NZ_s8(signed) => {
                 if !self.z_flag {
-                    self.pc = Address(((self.pc.0) as i32 + val.0 as i32) as u16);
+                    self.pc = Address(((self.pc.0) as i32 + signed.0 as i32) as u16);
                     self.cost = 3;
                 } else {
                     self.cost = 2;
                 }
             }
             // 0x21
-            LD_HL_d16(l, h) => {
-                self.h = h;
-                self.l = l;
+            LD_HL_d16(addr) => {
+                self.write_hl(addr);
                 self.cost = 3;
             }
             // 0x22
@@ -219,10 +218,65 @@ impl CentralProcessor {
                 self.cost = 2;
             }
             // 0x23
-            LD_HL_dec_A => {
-                let addr = self.read_hl();
-                mmap.write(addr, self.a);
-                self.write_hl(addr - 1);
+            INC_HL => {
+                self.write_hl(self.read_hl() + 1);
+                self.cost = 2;
+            }
+            // 0x24
+            INC_H => {
+                increment_register!(self, self.h);
+            }
+            // 0x25
+            DEC_H => {
+                decrement_register!(self, self.h);
+            }
+            // 0x26
+            LD_H_d8(val) => {
+                self.h = val;
+                self.cost = 2;
+            }
+            // 0x27
+            DAA => {
+                // TODO: implement BCD operation
+                unimplemented!()
+            }
+            // 0x28
+            JR_Z_s8(signed) => {
+                if self.z_flag {
+                    self.pc = Address(((self.pc.0) as i32 + signed.0 as i32) as u16);
+                    self.cost = 3;
+                } else {
+                    self.cost = 2;
+                }
+            }
+            // 0x29
+            #[allow(clippy::redundant_closure_call)]
+            ADD_HL_HL => {
+                let hl = self.read_hl();
+                addition_register_pairs!(self, hl, hl, (|x| { self.write_hl(x) }));
+            }
+            // 0x2A
+            LD_A_aHL_inc => {
+                self.a = mmap.read(self.read_hl());
+                self.write_hl(self.read_hl() + 1);
+                self.cost = 2;
+            }
+            // 0x2B
+            DEC_HL => {
+                self.write_hl(self.read_hl() - 1);
+                self.cost = 2;
+            }
+            // 0x2C
+            INC_L => {
+                increment_register!(self, self.l);
+            }
+            // 0x2D
+            DEC_L => {
+                decrement_register!(self, self.l);
+            }
+            // 0x2E
+            LD_L_d8(val) => {
+                self.l = val;
                 self.cost = 2;
             }
             // 0x2F
@@ -232,10 +286,20 @@ impl CentralProcessor {
                 self.h_flag = true;
                 self.cost = 1;
             }
+            // Row 2
+
+            // Row 3
             // 0x31
             LD_SP_d16(val) => {
                 self.sp = val;
                 self.cost = 3;
+            }
+            // 0x32
+            LD_aHL_dec_A => {
+                let addr = self.read_hl();
+                mmap.write(addr, self.a);
+                self.write_hl(addr - 1);
+                self.cost = 2;
             }
             // 0x3E
             LD_A_d8(val) => {

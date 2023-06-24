@@ -47,7 +47,7 @@ pub enum Opcode {
 
     // Row 2
     JR_NZ_s8(SignedByte) = 0x20,
-    LD_HL_d16(Byte, Byte) = 0x21,
+    LD_HL_d16(Address) = 0x21,
     LD_aHL_inc_A = 0x22,
     INC_HL = 0x23,
     INC_H = 0x24,
@@ -67,7 +67,7 @@ pub enum Opcode {
     // Row 3
     JR_NC_s8(SignedByte) = 0x30,
     LD_SP_d16(Address) = 0x31,
-    LD_HL_dec_A = 0x32,
+    LD_aHL_dec_A = 0x32,
     INC_SP = 0x33,
     INC_aHL = 0x34,
     DEC_aHL = 0x35,

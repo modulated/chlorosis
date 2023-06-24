@@ -49,7 +49,7 @@ impl CentralProcessor {
 
             // Row 2
             0x20 => JR_NZ_s8(self.consume_signed_byte(mmap)),
-            0x21 => LD_HL_d16(self.consume_byte(mmap), self.consume_byte(mmap)),
+            0x21 => LD_HL_d16(self.consume_pair(mmap)),
             0x22 => LD_aHL_inc_A,
             0x23 => INC_HL,
             0x24 => INC_H,
@@ -69,7 +69,7 @@ impl CentralProcessor {
             // Row 3
             0x30 => JR_NC_s8(self.consume_signed_byte(mmap)),
             0x31 => LD_SP_d16(self.consume_pair(mmap)),
-            0x32 => LD_HL_dec_A,
+            0x32 => LD_aHL_dec_A,
             0x33 => INC_SP,
             0x34 => INC_aHL,
             0x35 => DEC_aHL,
