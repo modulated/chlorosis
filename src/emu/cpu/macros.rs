@@ -5,7 +5,6 @@ macro_rules! increment_register {
         $reg += 1;
         $cpu.n_flag = false;
         $cpu.check_zero($reg);
-        $cpu.cost = 1;
     };
 }
 
@@ -16,7 +15,6 @@ macro_rules! decrement_register {
         $reg -= 1;
         $cpu.n_flag = true;
         $cpu.check_zero($reg);
-        $cpu.cost = 1;
     };
 }
 
@@ -26,7 +24,6 @@ macro_rules! addition_register_pairs {
         $cpu.check_half_carry_add_address($a, $b);
         $cpu.check_carry_add_address($a, $b);
         $write($a + $b);
-        $cpu.n_flag = false;
-        $cpu.cost = 2;
+        $cpu.n_flag = false;        
     };
 }

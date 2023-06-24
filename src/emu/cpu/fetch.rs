@@ -88,7 +88,15 @@ impl CentralProcessor {
             // Row 4
             0x4F => LD_C_A,
 
+            0x57 => LD_D_A,
+
+            0x67 => LD_H_A,
+
             0x77 => LD_HL_A,
+
+            0x7B => LD_A_E,
+
+            0x90 => SUB_B,
 
             0xAF => XOR_A,
 
@@ -100,12 +108,20 @@ impl CentralProcessor {
             0xC4 => CALL_NZ_a16(self.consume_pair(mmap)),
             0xC5 => PUSH_BC,
 
+            0xC9 => RET,
+
             0xCB => self.fetch_cb_instruction(mmap),
             0xCD => CALL_a16(self.consume_pair(mmap)),
 
             0xE0 => LD_a8_A(self.consume_byte(mmap).to_address()),
             0xE1 => POP_HL,
             0xE2 => LD_aC_A,
+
+            0xEA => LD_a16_A(self.consume_pair(mmap)),
+
+            0xF0 => LD_A_a8(self.consume_byte(mmap)),
+
+            0xFE => CP_d8(self.consume_byte(mmap)),
 
             _ => panic!("Unknown Opcode 0x{} at address {}", op, current_address),
         }

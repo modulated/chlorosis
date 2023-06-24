@@ -82,9 +82,20 @@ pub enum Opcode {
     LD_A_d8(Byte) = 0x3E,
     CCF = 0x3F,
     // Row 3
+
+    // Row 4
     LD_C_A = 0x4F,
 
+
+    LD_D_A = 0x57,
+
+    LD_H_A = 0x67,
+
     LD_HL_A = 0x77,
+
+    LD_A_E = 0x7B,
+
+    SUB_B = 0x90,
 
     XOR_A = 0xAF,
 
@@ -96,12 +107,18 @@ pub enum Opcode {
     CALL_NZ_a16(Address) = 0xC4,
     PUSH_BC = 0xC5,
 
-    // CB = 0xCB,
+    RET = 0xC9,
     CALL_a16(Address) = 0xCD,
 
     LD_a8_A(Address) = 0xE0,
     POP_HL = 0xE1,
     LD_aC_A = 0xE2,
+
+    LD_a16_A(Address) = 0xEA,
+
+    LD_A_a8(Byte) = 0xF0,
+
+    CP_d8(Byte) = 0xFE,
 
     // CB Extensions
     RL_C = 0xCB11,
