@@ -1,4 +1,6 @@
-use super::{AudioProcessor, CentralProcessor, MemoryMap, PixelProcessor, Screen};
+use super::{
+    types::CartrigeHeader, AudioProcessor, CentralProcessor, MemoryMap, PixelProcessor, Screen,
+};
 
 #[derive(Debug, Default)]
 pub struct Device {
@@ -7,6 +9,7 @@ pub struct Device {
     ppu: PixelProcessor,
     audio: AudioProcessor,
     screen: Screen,
+    cartrige: Option<CartrigeHeader>,
 }
 
 impl Device {
@@ -21,7 +24,7 @@ impl Device {
         }
     }
 
-    pub fn load_from_file(
+    pub fn load_cartrige(
         &mut self,
         path: impl AsRef<std::path::Path>,
     ) -> Result<(), std::io::Error> {
@@ -30,6 +33,9 @@ impl Device {
         let mut buf = vec![];
         f.read_to_end(&mut buf)?;
         self.mmap.load_cartrige(buf);
+
+        println!("{:?}", self.mmap.get_header());
+        self.cartrige = Some(CartrigeHeader::from_bytes(self.mmap.get_header()));
 
         Ok(())
     }
@@ -42,14 +48,10 @@ impl Device {
         println!("CPU State: ");
         self.cpu.dump_state();
     }
-}
 
-#[cfg(test)]
-mod test {
-    use super::Device;
-    #[test]
-    fn test_load_file() {
-        let mut dev = Device::new();
-        dev.load_from_file("cgb_boot.bin").unwrap();
+    pub fn dump_cartrige_header(&self) {
+        self.cartrige
+            .as_ref()
+            .map_or_else(|| println!("No cartrige loaded"), |c| println!("{c:#?}"))
     }
 }

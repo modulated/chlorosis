@@ -60,12 +60,23 @@ impl MemoryMap {
         self.rom_bank = value;
     }
 
-    pub fn load_cartrige(&mut self, mut buf: Vec<u8>) {
-        self.rom = buf.iter_mut().map(|x| Byte(*x)).collect()
+    pub fn load_cartrige(&mut self, buf: Vec<u8>) {
+        let mut iter = buf.iter().skip(0x0100);
+        println!("Reading cartrige, {} bytes", buf.len());
+        for i in 0x0100..=ROM_0_END {
+            // println!("Reading to {}", i);
+            self.rom[i as usize] = Byte(*iter.next().expect("Early end to cartrige"));
+        }
+
+        // TODO: Load all the cartrige into rom
+    }
+
+    pub fn get_header(&self) -> &[Byte] {
+        &self.rom[0x100..=0x14F]
     }
 
     pub fn dump_rom(&mut self) {
-        for i in 0x0000..0x8000 {
+        for i in ROM_0_START..ROM_1_END {
             let byte = self.read(Address(i));
             if i % 32 == 0 {
                 println!();

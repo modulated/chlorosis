@@ -1,4 +1,4 @@
-use super::{memory::MemoryMap, Address, Byte};
+use super::{memory::MemoryMap, types::SignedByte, Address, Byte};
 
 mod execute;
 mod fetch;
@@ -40,12 +40,12 @@ impl CentralProcessor {
         }
         // fetch instruction
         let op = self.fetch_instruction(mmap);
-        // println!("{op:?}");
+        println!("{op:?}");
 
         // execute instruction
         self.execute(mmap, op);
 
-        // self.dump_state();
+        self.dump_state();
     }
 
     pub const fn read_bc(&self) -> Address {
@@ -62,8 +62,14 @@ impl CentralProcessor {
 
     pub fn consume_byte(&mut self, mmap: &mut MemoryMap) -> Byte {
         let out = mmap.read(self.pc);
-        self.pc += 1u8;
+        self.pc += 1;
         out
+    }
+
+    fn consume_signed_byte(&mut self, mmap: &mut MemoryMap) -> SignedByte {
+        let out = mmap.read(self.pc);
+        self.pc += 1;
+        out.to_signed()
     }
 
     fn consume_pair(&mut self, mmap: &mut MemoryMap) -> Address {

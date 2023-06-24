@@ -1,6 +1,6 @@
 use std::ops::{Add, Sub};
 
-use super::Address;
+use super::{Address, SignedByte};
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Byte(pub u8);
@@ -28,8 +28,8 @@ impl Byte {
         }
     }
 
-    pub const fn to_signed(self) -> i8 {
-        -((!self.0 + 1) as i8)
+    pub const fn to_signed(self) -> SignedByte {
+        SignedByte(-((!self.0 + 1) as i8))
     }
 }
 
