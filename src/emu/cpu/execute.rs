@@ -25,7 +25,7 @@ impl CentralProcessor {
                 self.cost = 3;
             }
             // 0x02
-            LD_BC_A => {
+            LD_aBC_A => {
                 let addr = self.read_bc();
                 self.a = mmap.read(addr);
                 self.cost = 2;
@@ -71,7 +71,7 @@ impl CentralProcessor {
                 addition_register_pairs!(self, bc, hl, (|x| { self.write_hl(x) }));
             }
             // 0x0A
-            LD_A_BC => {
+            LD_A_aBC => {
                 self.a = mmap.read(self.read_bc());
                 self.cost = 2;
             }
@@ -118,31 +118,88 @@ impl CentralProcessor {
                 self.write_de(addr);
                 self.cost = 3;
             }
+            // 0x12
+            LD_aDE_A => {
+                let addr = self.read_de();
+                mmap.write(addr, self.a);
+                self.cost = 2;
+            }
+            // 0x13
+            INC_DE => {
+                self.write_de(self.read_de() + 1);
+                self.cost = 2;
+            }
+            // 0x14
+            INC_D => {
+                increment_register!(self, self.d);
+            }
+            // 0x15
+            DEC_D => {
+                decrement_register!(self, self.d);
+            }
+            // 0x16
+            LD_D_d8(val) => {
+                self.d = val;
+                self.cost = 2;
+            }
             // 0x17
             RLA => {
-                let old_cf = self.c_flag;
-                self.clear_flags();
-                if self.c.is_bit_set(7) {
-                    self.c_flag = true;
-                }
+                let prev = self.c_flag;
+                self.c_flag = self.a.is_bit_set(7); 
                 let mut val = self.a << 1;
-                if old_cf {
-                    val.set_bit(0);
-                }
+                val.write_bit(0, prev);
                 self.cost = 1;
             }
+            // 0x18
+            JR_s8(val) => {
+                self.pc = Address(((self.pc.0) as i32 + val.0 as i32) as u16);
+                self.cost = 3;
+            }
+            // 0x19
+            #[allow(clippy::redundant_closure_call)]
+            ADD_HL_DE => {
+                let hl = self.read_hl();
+                let de = self.read_de();
+                addition_register_pairs!(self, hl, de, (|x| { self.write_hl(x) }));
+            }
             // 0x1A
-            LD_A_DE => {
+            LD_A_aDE => {
                 self.a = mmap.read(self.read_de());
                 self.cost = 2;
             }
+            // 0x1B
+            DEC_DE => {
+                self.write_de(self.read_de());
+                self.cost = 2;
+            }
+            // 0x1C
+            INC_E => {
+                increment_register!(self, self.e);
+            }
+            // 0x1D
+            DEC_E => {
+                decrement_register!(self, self.e);
+            }
+            // 0x1E
+            LD_E_d8(val) => {
+               self.e = val;
+               self.cost = 2; 
+            }
+            // 0x1F
+            RRA => {
+                let prev = self.c_flag;
+                self.c_flag = self.a.is_bit_set(0); 
+                let mut val = self.a >> 1;
+                val.write_bit(7, prev);
+                self.cost = 1;              
+            }
+            // Row 1
+
+            // Row 2
             // 0x20
             JR_NZ_s8(val) => {
-                let val = val.to_signed();
                 if !self.z_flag {
-                    let addr = (self.pc.0 - 2) as i32 + val as i32;
-                    assert!(addr > 0);
-                    self.pc = Address(addr as u16);
+                    self.pc = Address(((self.pc.0) as i32 + val.0 as i32) as u16);
                     self.cost = 3;
                 } else {
                     self.cost = 2;
@@ -155,7 +212,7 @@ impl CentralProcessor {
                 self.cost = 3;
             }
             // 0x22
-            LD_HL_inc_A => {
+            LD_aHL_inc_A => {
                 let addr = self.read_hl();
                 mmap.write(addr, self.a);
                 self.write_hl(addr + 1);

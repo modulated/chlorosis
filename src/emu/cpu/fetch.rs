@@ -12,7 +12,7 @@ impl CentralProcessor {
             // Row 0
             0x00 => NOP,
             0x01 => LD_BC_d16(self.consume_pair(mmap)),
-            0x02 => LD_BC_A,
+            0x02 => LD_aBC_A,
             0x03 => INC_BC,
             0x04 => INC_B,
             0x05 => DEC_B,
@@ -20,7 +20,7 @@ impl CentralProcessor {
             0x07 => RLCA,
             0x08 => LD_a16_SP(self.consume_pair(mmap)),
             0x09 => ADD_HL_BC,
-            0x0A => LD_A_BC,
+            0x0A => LD_A_aBC,
             0x0B => DEC_BC,
             0x0C => INC_C,
             0x0D => DEC_C,
@@ -31,21 +31,61 @@ impl CentralProcessor {
             // Row 1
             0x10 => STOP(self.consume_byte(mmap)),
             0x11 => LD_DE_d16(self.consume_pair(mmap)),
-
+            0x12 => LD_aDE_A,
+            0x13 => INC_DE,
+            0x14 => INC_D,
+            0x15 => DEC_D,
+            0x16 => LD_D_d8(self.consume_byte(mmap)),
             0x17 => RLA,
+            0x18 => JR_s8(self.consume_signed_byte(mmap)),
+            0x19 => ADD_HL_DE,
+            0x1A => LD_A_aDE,
+            0x1B => DEC_DE,
+            0x1C => INC_E,
+            0x1D => DEC_D,
+            0x1E => LD_E_d8(self.consume_byte(mmap)),
+            0x1F => RRA,
+            // Row 1
 
-            0x1A => LD_A_DE,
-
-            0x20 => JR_NZ_s8(self.consume_byte(mmap)),
+            // Row 2
+            0x20 => JR_NZ_s8(self.consume_signed_byte(mmap)),
             0x21 => LD_HL_d16(self.consume_byte(mmap), self.consume_byte(mmap)),
-            0x22 => LD_HL_inc_A,
-
+            0x22 => LD_aHL_inc_A,
+            0x23 => INC_HL,
+            0x24 => INC_H,
+            0x25 => DEC_H,
+            0x26 => LD_H_d8(self.consume_byte(mmap)),
+            0x27 => DAA,
+            0x28 => JR_Z_s8(self.consume_signed_byte(mmap)),
+            0x29 => ADD_HL_HL,
+            0x2A => LD_A_aHL_inc,
+            0x2B => DEC_HL,
+            0x2C => INC_L,
+            0x2D => DEC_L,
+            0x2E => LD_L_d8(self.consume_byte(mmap)),
             0x2F => CPL,
+            // Row 2
 
+            // Row 3
+            0x30 => JR_NC_s8(self.consume_signed_byte(mmap)),
             0x31 => LD_SP_d16(self.consume_pair(mmap)),
             0x32 => LD_HL_dec_A,
+            0x33 => INC_SP,
+            0x34 => INC_aHL,
+            0x35 => DEC_aHL,
+            0x36 => LD_aHL_d8(self.consume_byte(mmap)),
+            0x37 => SCF,
+            0x38 => JR_C_s8(self.consume_signed_byte(mmap)),
+            0x39 => ADD_HL_SP,
+            0x3A => LD_A_aHL_dec,
+            0x3B => DEC_SP,
+            0x3C => INC_A,
+            0x3D => DEC_A,
             0x3E => LD_A_d8(self.consume_byte(mmap)),
+            0x3F => CCF,
+            // Row 3
 
+            // Row 4
             0x4F => LD_C_A,
 
             0x77 => LD_HL_A,

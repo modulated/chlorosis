@@ -1,4 +1,4 @@
-use crate::emu::{Address, Byte};
+use crate::emu::{types::SignedByte, Address, Byte};
 
 // Opcodes have a cycle count and byte count
 
@@ -7,10 +7,10 @@ use crate::emu::{Address, Byte};
 #[allow(non_camel_case_types)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Opcode {
-    // 0 Row
+    // Row 0
     NOP = 0x00,
     LD_BC_d16(Address) = 0x01,
-    LD_BC_A = 0x02,
+    LD_aBC_A = 0x02,
     INC_BC = 0x03,
     INC_B = 0x04,
     DEC_B = 0x05,
@@ -18,32 +18,70 @@ pub enum Opcode {
     RLCA = 0x07,
     LD_a16_SP(Address) = 0x08,
     ADD_HL_BC = 0x09,
-    LD_A_BC = 0x0A,
+    LD_A_aBC = 0x0A,
     DEC_BC = 0x0B,
     INC_C = 0x0C,
     DEC_C = 0x0D,
     LD_C_d8(Byte) = 0x0E,
     RRCA = 0x0F,
-    // 0 Row
+    // Row 0
 
-    // 1 Row
+    // Row 1
     STOP(Byte) = 0x10,
     LD_DE_d16(Address) = 0x11,
-
+    LD_aDE_A = 0x12,
+    INC_DE = 0x13,
+    INC_D = 0x14,
+    DEC_D = 0x15,
+    LD_D_d8(Byte) = 0x16,
     RLA = 0x17,
+    JR_s8(SignedByte) = 0x18,
+    ADD_HL_DE = 0x19,
+    LD_A_aDE = 0x1A,
+    DEC_DE = 0x1B,
+    INC_E = 0x1C,
+    DEC_E = 0x1D,
+    LD_E_d8(Byte) = 0x1E,
+    RRA,
+    // Row 1
 
-    LD_A_DE = 0x1A,
-
-    JR_NZ_s8(Byte) = 0x20,
+    // Row 2
+    JR_NZ_s8(SignedByte) = 0x20,
     LD_HL_d16(Byte, Byte) = 0x21,
-    LD_HL_inc_A = 0x22,
-
+    LD_aHL_inc_A = 0x22,
+    INC_HL = 0x23,
+    INC_H = 0x24,
+    DEC_H = 0x25,
+    LD_H_d8(Byte) = 0x26,
+    DAA = 0x27,
+    JR_Z_s8(SignedByte) = 0x28,
+    ADD_HL_HL = 0x29,
+    LD_A_aHL_inc = 0x2A,
+    DEC_HL = 0x2B,
+    INC_L = 0x2C,
+    DEC_L = 0x2D,
+    LD_L_d8(Byte) = 0x2E,
     CPL = 0x2F,
+    // Row 2
 
+    // Row 3
+    JR_NC_s8(SignedByte) = 0x30,
     LD_SP_d16(Address) = 0x31,
     LD_HL_dec_A = 0x32,
-    LD_A_d8(Byte) = 0x3A,
-
+    INC_SP = 0x33,
+    INC_aHL = 0x34,
+    DEC_aHL = 0x35,
+    LD_aHL_d8(Byte) = 0x36,
+    SCF = 0x37,
+    JR_C_s8(SignedByte) = 0x38,
+    ADD_HL_SP = 0x39,
+    LD_A_aHL_dec = 0x3A,
+    DEC_SP = 0x3B,
+    INC_A = 0x3C,
+    DEC_A = 0x3D,
+    LD_A_d8(Byte) = 0x3E,
+    CCF = 0x3F,
+    // Row 3
     LD_C_A = 0x4F,
 
     LD_HL_A = 0x77,
@@ -70,13 +108,3 @@ pub enum Opcode {
 
     BIT_7_H = 0xCB7C,
 }
-
-// impl std::fmt::Display for Opcode {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         if (self as u16) > 0xCA00 {
-//             Ok(write!(f, "{self} (0x{})", Byte(*self as u8))?)
-//         } else {
-//             Ok(write!(f, "{self} ({})", Byte(*self as u8))?)
-//         }
-//     }
-// }
