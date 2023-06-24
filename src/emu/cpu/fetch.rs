@@ -10,7 +10,7 @@ impl CentralProcessor {
 
         match op.0 {
             0x00 => NOP,
-            0x01 => LD_BC_d16(self.consume_pair_le(mmap)),
+            0x01 => LD_BC_d16(self.consume_pair(mmap)),
             0x02 => LD_BC_A,
             0x03 => INC_BC,
             0x04 => INC_B,
@@ -21,7 +21,7 @@ impl CentralProcessor {
             0x0D => DEC_C,
             0x0E => LD_C_d8(self.consume_byte(mmap)),
 
-            0x11 => LD_DE_d16(self.consume_pair_le(mmap)),
+            0x11 => LD_DE_d16(self.consume_pair(mmap)),
 
             0x17 => RLA,
 
@@ -33,7 +33,7 @@ impl CentralProcessor {
 
             0x2F => CPL,
 
-            0x31 => LD_SP_d16(self.consume_pair_le(mmap)),
+            0x31 => LD_SP_d16(self.consume_pair(mmap)),
             0x32 => LD_HL_dec_A,
             0x3E => LD_A_d8(self.consume_byte(mmap)),
 
@@ -46,13 +46,13 @@ impl CentralProcessor {
             0xBC => CP_H,
 
             0xC1 => POP_BC,
-            0xC2 => JP_NZ_a16(self.consume_pair_le(mmap)),
-            0xC3 => JP_a16(self.consume_pair_le(mmap)),
-            0xC4 => CALL_NZ_a16(self.consume_pair_le(mmap)),
+            0xC2 => JP_NZ_a16(self.consume_pair(mmap)),
+            0xC3 => JP_a16(self.consume_pair(mmap)),
+            0xC4 => CALL_NZ_a16(self.consume_pair(mmap)),
             0xC5 => PUSH_BC,
 
             0xCB => self.fetch_cb_instruction(mmap),
-            0xCD => CALL_a16(self.consume_pair_le(mmap)),
+            0xCD => CALL_a16(self.consume_pair(mmap)),
 
             0xE0 => LD_a8_A(self.consume_byte(mmap).to_address()),
             0xE1 => POP_HL,

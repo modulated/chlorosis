@@ -49,7 +49,7 @@ pub enum Opcode {
     CALL_NZ_a16(Address) = 0xC4,
     PUSH_BC = 0xC5,
 
-    CB = 0xCB,
+    // CB = 0xCB,
     CALL_a16(Address) = 0xCD,
 
     LD_a8_A(Address) = 0xE0,

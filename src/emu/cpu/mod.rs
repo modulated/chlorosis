@@ -20,7 +20,7 @@ pub struct CentralProcessor {
     c_flag: bool,
     pc: Address,
     sp: Address,
-    interupt_master_enable: bool,
+    // interupt_master_enable: bool,
     cost: u8,
     cycle_count: u64,
 }
@@ -69,15 +69,7 @@ impl CentralProcessor {
         out
     }
 
-    fn consume_pair_be(&mut self, mmap: &mut MemoryMap) -> Address {
-        let b1 = mmap.read(self.pc);
-        self.pc += 1;
-        let b2 = mmap.read(self.pc);
-        self.pc += 1;
-        Address(((b1.0 as u16) << 8) + b2.0 as u16)
-    }
-
-    fn consume_pair_le(&mut self, mmap: &mut MemoryMap) -> Address {
+    fn consume_pair(&mut self, mmap: &mut MemoryMap) -> Address {
         let b1 = mmap.read(self.pc);
         self.pc += 1;
         let b2 = mmap.read(self.pc);
