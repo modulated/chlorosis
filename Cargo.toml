@@ -8,10 +8,6 @@ default-run = "bootrom"
 doctest = false
 
 [[bin]]
-name = "dump"
-test = false
-
-[[bin]]
 name = "bootrom"
 test = false
 
