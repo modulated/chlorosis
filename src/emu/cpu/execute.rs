@@ -819,8 +819,8 @@ impl CentralProcessor {
             }
 
             // 0xF0
-            LD_A_a8(val) => {
-                let addr = Address(0xFF00) + val.to_address();
+            LD_A_a8(addr) => {
+                let addr = Address(0xFF00) + addr;
                 self.a = mmap.read(addr);
                 self.cost = 3;
             }

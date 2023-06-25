@@ -93,7 +93,7 @@ impl MemoryMap {
 impl Default for MemoryMap {
     fn default() -> Self {
         let mut out = Self {
-            boot: include_bytes!("../../../dmg_boot.bin")
+            boot: include_bytes!("../../../cgb_boot.bin")
                 .iter()
                 .cloned()
                 .map(Byte)

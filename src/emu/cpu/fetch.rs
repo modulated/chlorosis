@@ -5,7 +5,6 @@ use super::{opcodes::Opcode, CentralProcessor};
 impl CentralProcessor {
     pub fn fetch_instruction(&mut self, mmap: &mut MemoryMap) -> Opcode {
         use Opcode::*;
-        let current_address = self.pc;
         let op = self.consume_byte(mmap);
 
         match op.0 {
@@ -160,34 +159,160 @@ impl CentralProcessor {
             0x7E => LD_A_aHL,
             0x7F => LD_A_A,
             // Row 7
+
+            // Row 8
+            0x80 => ADD_B,
+            0x81 => ADD_C,
+            0x82 => ADD_D,
+            0x83 => ADD_E,
+            0x84 => ADD_H,
+            0x85 => ADD_L,
+            0x86 => ADD_aHL,
+            0x87 => ADD_A,
+            0x88 => ADC_B,
+            0x89 => ADC_C,
+            0x8A => ADC_D,
+            0x8B => ADC_E,
+            0x8C => ADC_H,
+            0x8D => ADC_L,
+            0x8E => ADC_aHL,
+            0x8F => ADC_A,
+            // Row 8
+
+            // Row 9
             0x90 => SUB_B,
+            0x91 => SUB_C,
+            0x92 => SUB_D,
+            0x93 => SUB_E,
+            0x94 => SUB_H,
+            0x95 => SUB_L,
+            0x96 => SUB_aHL,
+            0x97 => SUB_A,
+            0x98 => SBC_B,
+            0x99 => SBC_C,
+            0x9A => SBC_D,
+            0x9B => SBC_E,
+            0x9C => SBC_H,
+            0x9D => SBC_L,
+            0x9E => SBC_aHL,
+            0x9F => SBC_A,
+            // Row 9
 
+            // Row A
+            0xA0 => AND_B,
+            0xA1 => AND_C,
+            0xA2 => AND_D,
+            0xA3 => AND_E,
+            0xA4 => AND_H,
+            0xA5 => AND_L,
+            0xA6 => AND_aHL,
+            0xA7 => AND_A,
+            0xA8 => XOR_B,
+            0xA9 => XOR_C,
+            0xAA => XOR_D,
+            0xAB => XOR_E,
+            0xAC => XOR_H,
+            0xAD => XOR_L,
+            0xAE => XOR_aHL,
             0xAF => XOR_A,
+            // Row A
 
+            // Row B
+            0xB0 => OR_B,
+            0xB1 => OR_C,
+            0xB2 => OR_D,
+            0xB3 => OR_E,
+            0xB4 => OR_H,
+            0xB5 => OR_L,
+            0xB6 => OR_aHL,
+            0xB7 => OR_A,
+            0xB8 => CP_B,
+            0xB9 => CP_C,
+            0xBA => CP_D,
+            0xBB => CP_E,
             0xBC => CP_H,
+            0xBD => CP_L,
+            0xBE => CP_aHL,
+            0xBF => CP_A,
+            // Row B
 
+            // Row C
+            0xC0 => RET_NZ,
             0xC1 => POP_BC,
             0xC2 => JP_NZ_a16(self.consume_pair(mmap)),
             0xC3 => JP_a16(self.consume_pair(mmap)),
             0xC4 => CALL_NZ_a16(self.consume_pair(mmap)),
             0xC5 => PUSH_BC,
-
+            0xC6 => ADD_A_d8(self.consume_byte(mmap)),
+            0xC7 => RST_0,
+            0xC8 => RET_Z,
             0xC9 => RET,
-
+            0xCA => JP_Z_a16(self.consume_pair(mmap)),
             0xCB => self.fetch_cb_instruction(mmap),
+            0xCC => CALL_Z_a16(self.consume_pair(mmap)),
             0xCD => CALL_a16(self.consume_pair(mmap)),
+            0xCE => ADC_A_d8(self.consume_byte(mmap)),
+            0xCF => RST_1,
+            // Row C
 
+            // Row D
+            0xD0 => RET_NC,
+            0xD1 => POP_DE,
+            0xD2 => JP_NC_a16(self.consume_pair(mmap)),
+            0xD3 => panic!("Illegal instruction {}", op),
+            0xD4 => CALL_NC_a16(self.consume_pair(mmap)),
+            0xD5 => PUSH_DE,
+            0xD6 => SUB_d8(self.consume_byte(mmap)),
+            0xD7 => RST_2,
+            0xD8 => RET_C,
+            0xD9 => RETI,
+            0xDA => JP_C_a16(self.consume_pair(mmap)),
+            0xDB => panic!("Illegal instruction {}", op),
+            0xDC => CALL_C_a16(self.consume_pair(mmap)),
+            0xDD => panic!("Illegal instruction {}", op),
+            0xDE => SBC_A_d8(self.consume_byte(mmap)),
+            0xDF => RST_3,
+            // Row D
+
+            // Row E
             0xE0 => LD_a8_A(self.consume_byte(mmap).to_address()),
             0xE1 => POP_HL,
             0xE2 => LD_aC_A,
-
+            0xE3 => panic!("Illegal instruction {}", op),
+            0xE4 => panic!("Illegal instruction {}", op),
+            0xE5 => PUSH_HL,
+            0xE6 => AND_d8(self.consume_byte(mmap)),
+            0xE7 => RST_4,
+            0xE8 => ADD_SP_d8(self.consume_byte(mmap)),
+            0xE9 => JP_HL,
             0xEA => LD_a16_A(self.consume_pair(mmap)),
+            0xEB => panic!("Illegal instruction {}", op),
+            0xEC => panic!("Illegal instruction {}", op),
+            0xED => panic!("Illegal instruction {}", op),
+            0xEE => XOR_d8(self.consume_byte(mmap)),
+            0xEF => RST_5,
+            // Row E
 
-            0xF0 => LD_A_a8(self.consume_byte(mmap)),
-
+            // Row F
+            0xF0 => LD_A_a8(self.consume_byte(mmap).to_address()),
+            0xF1 => POP_AF,
+            0xF2 => LD_A_aC,
+            0xF3 => DI,
+            0xF4 => panic!("Illegal instruction {}", op),
+            0xF5 => PUSH_AF,
+            0xF6 => OR_d8(self.consume_byte(mmap)),
+            0xF7 => RST_6,
+            0xF8 => LD_HL_SP_s8(self.consume_signed_byte(mmap)),
+            0xF9 => LD_SP_HL,
+            0xFA => LD_A_a16(self.consume_pair(mmap)),
+            0xFB => EI,
+            0xFC => panic!("Illegal instruction {}", op),
+            0xFD => panic!("Illegal instruction {}", op),
             0xFE => CP_d8(self.consume_byte(mmap)),
+            0xFF => RST_7,
+            // Row F
 
-            _ => panic!("Unknown Opcode 0x{} at address {}", op, current_address),
+            // _ => unreachable!("Unknown Opcode 0x{} at address {}", op, current_address),
         }
     }
 
