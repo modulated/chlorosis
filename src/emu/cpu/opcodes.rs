@@ -282,7 +282,7 @@ pub enum Opcode {
     PUSH_HL = 0xE5,
     AND_d8(Byte) = 0xE6,
     RST_4 = 0xE7,
-    ADD_SP_d8(Byte) = 0xE8,
+    ADD_SP_s8(SignedByte) = 0xE8,
     JP_HL = 0xE9,
     LD_a16_A(Address) = 0xEA,
     // No instruction = 0xEB,

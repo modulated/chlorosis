@@ -15,7 +15,7 @@ pub struct MemoryMap {
     interrupt: Byte,
     rom_bank: usize,
     vram_bank: usize,
-    wram_bank: usize
+    wram_bank: usize,
 }
 
 impl MemoryMap {
@@ -25,9 +25,7 @@ impl MemoryMap {
 
     pub fn map(&mut self, address: Address) -> &mut Byte {
         match address.0 {
-            ROM_0_START..=ROM_0_END => {            
-                &mut self.rom[address]
-            }
+            ROM_0_START..=ROM_0_END => &mut self.rom[address],
             ROM_1_START..=ROM_1_END => {
                 &mut self.rom[address + Address(ROM_1_START) * (self.rom_bank - 1)]
             }
@@ -115,7 +113,7 @@ impl Default for MemoryMap {
             hram: vec![Byte(0); HRAM_SIZE],
             io: vec![Byte(0); IO_SIZE],
             interrupt: Byte(0),
-        }    
+        }
     }
 }
 

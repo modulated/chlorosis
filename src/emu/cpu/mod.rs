@@ -22,14 +22,31 @@ pub struct CentralProcessor {
     c_flag: bool,
     pc: Address,
     sp: Address,
-    // interupt_master_enable: bool,
+    interupt_master_enable: bool,
     cost: u8,
     cycle_count: u64,
 }
 
 impl Default for CentralProcessor {
     fn default() -> Self {
-        Self { a: Default::default(), b: Default::default(), c: Default::default(), d: Default::default(), e: Default::default(), h: Default::default(), l: Default::default(), z_flag: Default::default(), n_flag: Default::default(), h_flag: Default::default(), c_flag: Default::default(), pc: Address(0x0100), sp: Address(0xFFFE), cost: Default::default(), cycle_count: Default::default() }
+        Self {
+            a: Byte(0x00),
+            b: Byte(0x00),
+            c: Byte(0x00),
+            d: Byte(0x00),
+            e: Byte(0x00),
+            h: Byte(0x00),
+            l: Byte(0x00),
+            z_flag: false,
+            n_flag: false,
+            h_flag: false,
+            c_flag: false,
+            pc: Address(0x0100),
+            sp: Address(0xFFFE),
+            cost: 0,
+            cycle_count: 0,
+            interupt_master_enable: false,
+        }
     }
 }
 
@@ -55,7 +72,8 @@ impl CentralProcessor {
         self.dump_state();
     }
 
-    pub fn read_f(&self) -> Byte { // TODO: may be able to make const?
+    pub fn read_f(&self) -> Byte {
+        // TODO: may be able to make const?
         let mut b = Byte(0x0);
         b.write_bit(7, self.z_flag);
         b.write_bit(6, self.n_flag);

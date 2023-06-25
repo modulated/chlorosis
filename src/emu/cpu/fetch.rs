@@ -285,7 +285,7 @@ impl CentralProcessor {
             0xE5 => PUSH_HL,
             0xE6 => AND_d8(self.consume_byte(mmap)),
             0xE7 => RST_4,
-            0xE8 => ADD_SP_d8(self.consume_byte(mmap)),
+            0xE8 => ADD_SP_s8(self.consume_signed_byte(mmap)),
             0xE9 => JP_HL,
             0xEA => LD_a16_A(self.consume_pair(mmap)),
             0xEB => panic!("Illegal instruction {}", op),

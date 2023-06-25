@@ -1,9 +1,6 @@
 use crate::{
     addition_register_pairs, decrement_register,
-    emu::{
-        memory::constants::{RST_0_ADDRESS, RST_1_ADDRESS},
-        Address, Byte, MemoryMap,
-    },
+    emu::{memory::constants::*, Address, Byte, MemoryMap},
     increment_register,
 };
 
@@ -1197,27 +1194,177 @@ impl CentralProcessor {
             }
             // Row C
 
+            // Row D
+            // 0xD0
+            RET_NC => {
+                if !self.c_flag {
+                    self.pc = self.pop_address(mmap);
+                    self.cost = 5;
+                } else {
+                    self.cost = 2;
+                }
+            }
+            // 0xD1
+            POP_DE => {
+                let addr = self.pop_address(mmap);
+                self.write_de(addr);
+                self.cost = 3;
+            }
+            // 0xD2
+            JP_NC_a16(addr) => {
+                if !self.c_flag {
+                    self.pc = addr;
+                    self.cost = 4;
+                } else {
+                    self.cost = 3;
+                }
+            }
+            // 0xD3 = Illegal Instruction
+            // 0xD4
+            CALL_NC_a16(addr) => {
+                if !self.c_flag {
+                    self.push_address(mmap, self.pc);
+                    self.pc = addr;
+                    self.cost = 6;
+                } else {
+                    self.cost = 3;
+                }
+            }
+            // 0xD5
+            PUSH_DE => {
+                self.push_address(mmap, self.read_de());
+                self.cost = 4;
+            }
+            // 0xD6
+            SUB_d8(val) => {
+                self.sub(val);
+                self.cost = 2;
+            }
+            // 0xD7
+            RST_2 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_2_ADDRESS.into();
+                self.cost = 4;
+            }
+            // 0xD8
+            RET_C => {
+                if self.c_flag {
+                    self.sp = self.pop_address(mmap);
+                    self.cost = 5;
+                } else {
+                    self.cost = 2;
+                }
+            }
+            // 0xD9
+            RETI => {
+                // TODO: RETI instruction
+                unimplemented!("RETI instruction not implemented");
+                // toggle master interrupt enable flag
+                // load PC from SP? or other
+            }
+            // 0xDA
+            JP_C_a16(addr) => {
+                if self.c_flag {
+                    self.pc = addr;
+                    self.cost = 4;
+                } else {
+                    self.cost = 3;
+                }
+            }
+            // 0xDB = Illegal Instruction
+            // 0xDC
+            CALL_C_a16(addr) => {
+                if self.c_flag {
+                    self.push_address(mmap, self.pc);
+                    self.pc = addr;
+                    self.cost = 6;
+                } else {
+                    self.cost = 3;
+                }
+            }
+            // 0xDD = Illegal Instruction
+            // 0xDE
+            SBC_A_d8(val) => {
+                self.sbc(val);
+                self.cost = 2;
+            }
+            // 0xDF
+            RST_3 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_3_ADDRESS.into();
+                self.cost = 4;
+            }
+            // Row D
+
             // Row E
             // 0xE0
             LD_a8_A(addr) => {
                 let target = Address(0xFF00) + addr;
-                println!("Writing {target}");
                 mmap.write(target, self.a);
                 self.cost = 3;
             }
-
+            // 0xE1
+            POP_HL => {
+                let addr = self.pop_address(mmap);
+                self.write_hl(addr);
+                self.cost = 3;
+            }
             // 0xE2
             LD_aC_A => {
                 mmap.write(Address(0xFF00) + self.c.to_address(), self.a);
                 self.cost = 2;
             }
-
+            // 0xE3 = Illegal Instruction
+            // 0xE4 = Illegal Instruction
+            // 0xE5
+            PUSH_HL => {
+                self.push_address(mmap, self.read_hl());
+                self.cost = 4;
+            }
+            // 0xE6
+            AND_d8(val) => {
+                self.and(val);
+                self.cost = 2;
+            }
+            // 0xE7
+            RST_4 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_4_ADDRESS.into();
+                self.cost = 4;
+            }
+            // 0xE8
+            ADD_SP_s8(signed) => {
+                self.clear_flags();
+                self.check_carry_signed_address(self.sp, signed); // TODO: this may introduce bugs? need to write test
+                self.pc = Address(((self.sp.0 as i32) + (signed.0 as i32)) as u16);
+            }
+            // 0xE9
+            JP_HL => {
+                self.pc = self.read_hl();
+                self.cost = 1;
+            }
             // 0xEA
             LD_a16_A(addr) => {
                 mmap.write(addr, self.a);
                 self.cost = 4;
             }
+            // 0xEB = Illegal Instruction
+            // 0xEC = Illegal Instruction
+            // 0xED = Illegal Instruction
+            // 0xEE
+            XOR_d8(val) => {
+                self.xor(val);
+                self.cost = 2;
+            }
+            // 0xEF
+            RST_5 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_5_ADDRESS.into();
+                self.cost = 4;
+            }
+            // Row E
 
+            // Row F
             // 0xF0
             LD_A_a8(addr) => {
                 let addr = Address(0xFF00) + addr;
@@ -1230,13 +1377,58 @@ impl CentralProcessor {
                 self.write_af(addr);
                 self.cost = 3;
             }
-
+            // 0xF2
+            LD_A_aC => {
+                self.a = mmap.read(Address(0xFF00) + self.c.to_address());
+                self.cost = 2;
+            }
+            // 0xF3
+            DI => {
+                self.interupt_master_enable = false;
+                self.cost = 1;
+            }
+            // 0xF4 = Illegal Instruction
             // 0xF5
             PUSH_AF => {
                 self.push_address(mmap, self.read_af());
                 self.cost = 4;
             }
-
+            // 0xF6
+            OR_d8(val) => {
+                self.or(val);
+                self.cost = 2;
+            }
+            // 0xF7
+            RST_6 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_6_ADDRESS.into();
+                self.cost = 4;
+            }
+            // 0xF8
+            LD_HL_SP_s8(signed) => {
+                let addr = Address(((self.sp.0 as i32) + (signed.0 as i32)) as u16);
+                self.clear_flags();
+                self.check_carry_signed_address(self.sp, signed);
+                self.write_hl(addr);
+                self.cost = 3;
+            }
+            // 0xF9
+            LD_SP_HL => {
+                self.sp = self.read_hl();
+                self.cost = 2;
+            }
+            // 0xFA
+            LD_A_a16(addr) => {
+                self.a = mmap.read(addr);
+                self.cost = 4;
+            }
+            // 0xFB
+            EI => {
+                self.interupt_master_enable = true;
+                self.cost = 1;
+            }
+            // 0xFC = Illegal Instruction
+            // 0xFD = Illegal Instruction
             // 0xFE
             CP_d8(val) => {
                 let prev = self.a;
@@ -1244,8 +1436,18 @@ impl CentralProcessor {
                 self.a = prev;
                 self.cost = 2;
             }
+            // 0xFF
+            RST_7 => {
+                println!("RST_7 => may indicate 0xFF bug");
+                self.push_address(mmap, self.pc);
+                self.pc = RST_5_ADDRESS.into();
+                self.cost = 4;
+            }
+            // Row F
 
             // CB Extensions
+            // Row 0
+            // Row 1
             // 0xCB11
             RL_C => {
                 let old_cf = self.c_flag;

@@ -1,4 +1,4 @@
-use crate::emu::{Address, Byte};
+use crate::emu::{types::SignedByte, Address, Byte};
 
 use super::CentralProcessor;
 
@@ -106,6 +106,25 @@ impl CentralProcessor {
             self.c_flag = true;
         } else {
             self.c_flag = false;
+        }
+    }
+
+    pub fn check_carry_sub_address(&mut self, a: Address, b: Address) {
+        let res = a.0.wrapping_sub(b.0);
+        if (res > a.0) || (res > b.0) {
+            self.c_flag = true;
+        } else {
+            self.c_flag = false;
+        }
+    }
+
+    pub fn check_carry_signed_address(&mut self, a: Address, b: SignedByte) {
+        if b.0 >= 0 {
+            let b = Address(b.0 as u16);
+            self.check_carry_add_address(a, b)
+        } else {
+            let b = Address(b.0.unsigned_abs() as u16);
+            self.check_carry_sub_address(a, b)
         }
     }
 
