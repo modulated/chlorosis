@@ -121,6 +121,12 @@ impl std::ops::BitAndAssign<Self> for Byte {
     }
 }
 
+impl std::ops::BitOrAssign<Self> for Byte {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::emu::Byte;

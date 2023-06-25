@@ -37,6 +37,16 @@ pub const HRAM_SIZE: usize = 0x7F; // 127
 pub const IO_SIZE: usize = 0x80; // 128
 pub const BOOT_SIZE: usize = 0x100; // 256
 
+// RESET ADDRESS CONSTANTS
+pub const RST_0_ADDRESS: u16 = 0x0000;
+pub const RST_1_ADDRESS: u16 = 0x0008;
+pub const RST_2_ADDRESS: u16 = 0x0010;
+pub const RST_3_ADDRESS: u16 = 0x0018;
+pub const RST_4_ADDRESS: u16 = 0x0020;
+pub const RST_5_ADDRESS: u16 = 0x0028;
+pub const RST_6_ADDRESS: u16 = 0x0030;
+pub const RST_7_ADDRESS: u16 = 0x0038;
+
 // Interrupt flags
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

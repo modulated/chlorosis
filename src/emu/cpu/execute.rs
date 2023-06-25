@@ -1,7 +1,8 @@
 use crate::{
     addition_register_pairs, decrement_register,
-    emu::{Address, Byte, MemoryMap},
+    emu::{Address, Byte, MemoryMap, memory::constants::{RST_0_ADDRESS, RST_1_ADDRESS}},
     increment_register,
+    mem
 };
 
 use super::{opcodes::Opcode, CentralProcessor};
@@ -742,6 +743,89 @@ impl CentralProcessor {
             // Row 7
 
             // Row 8
+            // 0x80
+            ADD_B => {
+                self.add(self.b);
+                self.cost = 1;
+            }
+            // 0x81
+            ADD_C => {
+                self.add(self.c);
+                self.cost = 1;
+            }
+            // 0x82
+            ADD_D => {
+                self.add(self.d);
+                self.cost = 1;
+            }
+            // 0x83
+            ADD_E => {
+                self.add(self.e);
+                self.cost = 1;
+            }
+            // 0x84
+            ADD_H => {
+                self.add(self.h);
+                self.cost = 1;
+            }
+            // 0x85
+            ADD_L => {
+                self.add(self.l);
+                self.cost = 1;
+            }
+            // 0x86
+            ADD_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.add(val);
+                self.cost = 2;
+            }
+            // 0x87
+            ADD_A => {
+                self.add(self.a);
+                self.cost = 1;
+            }
+            // 0x88
+            ADC_B => {
+                self.adc(self.b);
+                self.cost = 1;
+            }
+            // 0x89
+            ADC_C => {
+                self.adc(self.c);
+                self.cost = 1;
+            }
+            // 0x8A
+            ADC_D => {
+                self.adc(self.d);
+                self.cost = 1;
+            }
+            // 0x8B
+            ADC_E => {
+                self.adc(self.e);
+                self.cost = 1;
+            }
+            // 0x8C
+            ADC_H => {
+                self.adc(self.h);
+                self.cost = 1;
+            }
+            // 0x8D
+            ADC_L => {
+                self.adc(self.l);
+                self.cost = 1;
+            }
+            // 0x8E
+            ADC_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.adc(val);
+                self.cost = 2;
+            }
+            // 0x8F
+            ADC_A => {
+                self.adc(self.a);
+                self.cost = 1;
+            }
+            // Row 8
 
             // Row 9
             // 0x90
@@ -749,18 +833,264 @@ impl CentralProcessor {
                 self.sub(self.b);
                 self.cost = 1;
             }
+            // 0x91
+            SUB_C => {
+                self.sub(self.c);
+                self.cost = 1;
+            }
+            // 0x92
+            SUB_D => {
+                self.sub(self.d);
+                self.cost = 1;
+            }
+            // 0x93
+            SUB_E => {
+                self.sub(self.e);
+                self.cost = 1;
+            }
+            // 0x94
+            SUB_H => {
+                self.sub(self.h);
+                self.cost = 1;
+            }
+            // 0x95
+            SUB_L => {
+                self.sub(self.l);
+                self.cost = 1;
+            }
+            // 0x96
+            SUB_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.sub(val);
+                self.cost = 2;
+            }
+            // 0x97
+            SUB_A => {
+                self.sub(self.a);
+                self.cost = 1;
+            }
+            // 0x98
+            SBC_B => {
+                self.sbc(self.b);
+                self.cost = 1;
+            }
+            // 0x99
+            SBC_C => {
+                self.sbc(self.c);
+                self.cost = 1;
+            }
+            // 0x9A
+            SBC_D => {
+                self.sbc(self.d);
+                self.cost = 1;
+            }
+            // 0x9B
+            SBC_E => {
+                self.sbc(self.e);
+                self.cost = 1;
+            }
+            // 0x9C
+            SBC_H => {
+                self.sbc(self.h);
+                self.cost = 1;
+            }
+            // 0x9D
+            SBC_L => {
+                self.sbc(self.l);
+                self.cost = 1;
+            }
+            // 0x9E
+            SBC_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.sbc(val);
+                self.cost = 2;
+            }
+            // 0x9F
+            SBC_A => {
+                self.sbc(self.a);
+                self.cost = 1;
+            }
+            // Row 9
 
-            //0xAF
+            // Row A
+            // 0xA0
+            AND_B => {
+                self.and(self.b);
+                self.cost = 1;
+            }
+            // 0xA1
+            AND_C => {
+                self.and(self.c);
+                self.cost = 1;
+            }
+            // 0xA2
+            AND_D => {
+                self.and(self.d);
+                self.cost = 1;
+            }
+            // 0xA3
+            AND_E => {
+                self.and(self.e);
+                self.cost = 1;
+            }
+            // 0xA4
+            AND_H => {
+                self.and(self.h);
+                self.cost = 1;
+            }
+            // 0xA5
+            AND_L => {
+                self.and(self.l);
+                self.cost = 1;
+            }
+            // 0xA6
+            AND_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.and(val);
+                self.cost = 2;
+            }
+            // 0xA7
+            AND_A => {
+                self.and(self.a);
+                self.cost = 1;
+            }
+            // 0xA8
+            XOR_B => {
+                self.xor(self.b);
+                self.cost = 1;
+            }
+            // 0xA9
+            XOR_C => {
+                self.xor(self.c);
+                self.cost = 1;
+            }
+            // 0xAA
+            XOR_D => {
+                self.xor(self.d);
+                self.cost = 1;
+            }
+            // 0xAB
+            XOR_E => {
+                self.xor(self.e);
+                self.cost = 1;
+            }
+            // 0xAC
+            XOR_H => {
+                self.xor(self.h);
+                self.cost = 1;
+            }
+            // 0xAD
+            XOR_L => {
+                self.xor(self.l);
+                self.cost = 1;
+            }
+            // 0xAE
+            XOR_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.xor(val);
+                self.cost = 2;
+            }
+            // 0xAF
             XOR_A => {
                 self.xor(self.a);
                 self.cost = 1;
             }
+            // Row A
+
+            // Row B
+            // 0xB0
+            OR_B => {
+                self.or(self.b);
+                self.cost = 1;
+            }
+            // 0xB1
+            OR_C => {
+                self.or(self.c);
+                self.cost = 1;
+            }
+            // 0xB2
+            OR_D => {
+                self.or(self.d);
+                self.cost = 1;
+            }
+            // 0xB3
+            OR_E => {
+                self.or(self.e);
+                self.cost = 1;
+            }
+            // 0xB4
+            OR_H => {
+                self.or(self.h);
+                self.cost = 1;
+            }
+            // 0xB5
+            OR_L => {
+                self.or(self.l);
+                self.cost = 1;
+            }
+            // 0xB6
+            OR_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.or(val);
+                self.cost = 2;
+            }
+            // 0xB7
+            OR_A => {
+                self.or(self.a);
+                self.cost = 1;
+            }
+            // 0xB8
+            CP_B => {
+                self.cp(self.b);
+                self.cost = 1;
+            }
+            // 0xB9
+            CP_C => {
+                self.cp(self.c);
+                self.cost = 1;
+            }
+            // 0xBA
+            CP_D => {
+                self.cp(self.d);
+                self.cost = 1;
+            }
+            // 0xBB
+            CP_E => {
+                self.cp(self.e);
+                self.cost = 1;
+            }
             // 0xBC
             CP_H => {
-                let prev = self.a;
-                self.sub(self.h);
-                self.a = prev;
+                self.cp(self.h);
                 self.cost = 1;
+            }
+            // 0xBD
+            CP_L => {
+                self.cp(self.l);
+                self.cost = 1;
+            }
+            // 0xBE
+            CP_aHL => {
+                let val = mmap.read(self.read_hl());
+                self.cp(val);
+                self.cost = 2;
+            }
+            // 0xBF
+            CP_A => {
+                self.cp(self.a);
+                self.cost = 1;
+            }            
+            // Row B
+
+            // Row C
+            // 0xC0
+            RET_NZ => {
+                if !self.z_flag {
+                    self.pc = self.pop_address(mmap);                    
+                    self.cost = 5;
+                } else {
+                    self.cost = 2;
+                }
             }
             // 0xC1
             POP_BC => {
@@ -782,16 +1112,69 @@ impl CentralProcessor {
                 self.pc = addr;
                 self.cost = 4;
             }
+            // 0xC4
+            CALL_NZ_a16(addr) => {
+                if !self.z_flag {
+                    self.push_address(mmap, self.pc);
+                    self.pc = addr;
+                    self.cost = 6;
+                } else {
+                    self.cost = 3;
+                }
+            }
             // 0xC5
             PUSH_BC => {
                 self.push_address(mmap, self.read_bc());
                 self.cost = 4;
             }
-
+            // 0xC6
+            ADD_A_d8(val) => {
+                self.check_carry_add_byte(self.a, val);
+                self.check_half_carry_add_byte(self.a, val);
+                self.n_flag = false;
+                self.a = val;
+                self.check_zero(self.a);
+                self.cost = 2;
+            }
+            // 0xC7
+            RST_0 => {
+                self.push_address(mmap, self.pc);
+                self.pc = RST_0_ADDRESS.into();
+                self.cost = 4;
+            }
+            // 0xC8
+            RET_Z => {
+                if self.z_flag {
+                    self.pc = self.pop_address(mmap);
+                    self.cost = 5
+                } else {
+                    self.cost = 2;
+                }
+            }
             // 0xC9
             RET => {
                 self.pc = self.pop_address(mmap);
                 self.cost = 4;
+            }
+            // 0xCA
+            JP_Z_a16(addr) => {
+                if self.z_flag {
+                    self.pc = addr;
+                    self.cost = 4;
+                } else {
+                    self.cost = 3;
+                }
+            }
+            // 0xCB => Extended Instructions
+            // 0xCC
+            CALL_Z_a16(addr) => {
+                if self.z_flag {
+                    self.push_address(mmap, self.pc);
+                    self.pc = addr;
+                    self.cost = 6;
+                } else {
+                    self.cost = 3;
+                }
             }
             // 0xCD
             CALL_a16(addr) => {
@@ -799,6 +1182,19 @@ impl CentralProcessor {
                 self.pc = addr;
                 self.cost = 6;
             }
+            // 0xCE
+            ADC_A_d8(val) => {
+                self.adc(val);
+                self.cost = 2;
+            }
+            // 0xCF
+            RST_1 => {
+                self.pc = RST_1_ADDRESS.into();
+                self.cost = 4;
+            }
+            // Row C
+
+            // Row E
             // 0xE0
             LD_a8_A(addr) => {
                 let target = Address(0xFF00) + addr;

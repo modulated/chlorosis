@@ -18,12 +18,71 @@ impl CentralProcessor {
         }
     }
 
+    pub fn add(&mut self, val: Byte) {
+        let old = self.a;
+        self.a = Byte(self.a.0.wrapping_add(val.0));
+        self.check_zero(self.a);
+        self.check_half_carry_sub_byte(old, val);
+        self.check_carry_sub_byte(old, val);
+        self.n_flag = false;
+    }
+
+    pub fn adc(&mut self, val: Byte) {
+        let old = self.a;
+        if self.c_flag {
+            self.a = Byte(self.a.0.wrapping_add(val.0 + 1));
+            self.check_half_carry_sub_byte(old, Byte(val.0 + 1));
+            self.check_carry_sub_byte(old, Byte(val.0 + 1));
+        } else {
+            self.a = Byte(self.a.0.wrapping_add(val.0));
+            self.check_half_carry_sub_byte(old, val);
+            self.check_carry_sub_byte(old, val);
+        }        
+        self.check_zero(self.a);
+        self.n_flag = false;
+    }
+
     pub fn sub(&mut self, val: Byte) {
-        let dif = self.a.0.wrapping_sub(val.0);
-        self.check_zero(Byte(dif));
-        self.check_half_carry_sub_byte(self.a, val);
-        self.check_carry_sub_byte(self.a, val);
+        let old = self.a;
+        self.a = Byte(self.a.0.wrapping_sub(val.0));
+        self.check_zero(self.a);
+        self.check_half_carry_sub_byte(old, val);
+        self.check_carry_sub_byte(old, val);
         self.n_flag = true;
+    }
+
+    pub fn sbc(&mut self, val: Byte) {
+        let old = self.a;
+        if self.c_flag {
+            self.a = Byte(self.a.0.wrapping_sub(val.0 + 1));
+            self.check_half_carry_sub_byte(old, Byte(val.0 + 1));
+            self.check_carry_sub_byte(old, Byte(val.0 + 1));
+        } else {
+            self.a = Byte(self.a.0.wrapping_sub(val.0));
+            self.check_half_carry_sub_byte(old, val);
+            self.check_carry_sub_byte(old, val);
+        }
+        self.check_zero(self.a);
+        self.n_flag = true;
+    }
+
+    pub fn and(&mut self, val: Byte) {
+        self.a &= val;
+        self.clear_flags();
+        self.h_flag = true;
+        self.check_zero(self.a);
+    }
+
+    pub fn or(&mut self, val: Byte) {
+        self.a |= val;
+        self.clear_flags();
+        self.check_zero(self.a);
+    }
+
+    pub fn cp(&mut self, val: Byte) {
+        let prev = self.a;
+        self.sub(val);
+        self.a = prev;
     }
 
     pub fn xor(&mut self, val: Byte) {
@@ -32,7 +91,6 @@ impl CentralProcessor {
         self.check_zero(self.a);
     }
 
-    // CHECK AND SET C AND H FLAGS
     pub fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
         let res = a.0.wrapping_add(b.0);
         if (res < a.0) || (res < b.0) {

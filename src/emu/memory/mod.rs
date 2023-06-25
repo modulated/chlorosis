@@ -1,4 +1,4 @@
-mod constants;
+pub mod constants;
 use super::{Address, Byte};
 use constants::*;
 
@@ -98,7 +98,7 @@ impl Default for MemoryMap {
                 .cloned()
                 .map(Byte)
                 .collect(),
-            rom: vec![Byte(0); ROM_BANK_SIZE * 2],
+            rom: vec![Byte(0); ROM_BANK_SIZE * 2], // TODO: need better way of determing ROM vec size
             vram: vec![Byte(0); VRAM_SIZE],
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
