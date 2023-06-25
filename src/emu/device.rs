@@ -40,11 +40,11 @@ impl Device {
         Ok(())
     }
 
-    pub fn dump_memory(&mut self) {
-        self.mmap.dump_rom();
-    }
+    // pub fn dump_memory(&mut self) {
+    //     self.mmap.dump_rom();
+    // }
 
-    pub fn dump_state(&self) {
+    pub fn dump_cpu(&self) {
         println!("CPU State: ");
         self.cpu.dump_state();
     }

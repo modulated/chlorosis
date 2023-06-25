@@ -37,7 +37,7 @@ impl CentralProcessor {
             self.a = Byte(self.a.0.wrapping_add(val.0));
             self.check_half_carry_sub_byte(old, val);
             self.check_carry_sub_byte(old, val);
-        }        
+        }
         self.check_zero(self.a);
         self.n_flag = false;
     }
@@ -66,6 +66,12 @@ impl CentralProcessor {
         self.n_flag = true;
     }
 
+    pub fn cp(&mut self, val: Byte) {
+        let prev = self.a;
+        self.sub(val);
+        self.a = prev;
+    }
+
     pub fn and(&mut self, val: Byte) {
         self.a &= val;
         self.clear_flags();
@@ -77,12 +83,6 @@ impl CentralProcessor {
         self.a |= val;
         self.clear_flags();
         self.check_zero(self.a);
-    }
-
-    pub fn cp(&mut self, val: Byte) {
-        let prev = self.a;
-        self.sub(val);
-        self.a = prev;
     }
 
     pub fn xor(&mut self, val: Byte) {

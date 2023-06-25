@@ -1,8 +1,10 @@
 use crate::{
     addition_register_pairs, decrement_register,
-    emu::{Address, Byte, MemoryMap, memory::constants::{RST_0_ADDRESS, RST_1_ADDRESS}},
+    emu::{
+        memory::constants::{RST_0_ADDRESS, RST_1_ADDRESS},
+        Address, Byte, MemoryMap,
+    },
     increment_register,
-    mem
 };
 
 use super::{opcodes::Opcode, CentralProcessor};
@@ -1079,14 +1081,14 @@ impl CentralProcessor {
             CP_A => {
                 self.cp(self.a);
                 self.cost = 1;
-            }            
+            }
             // Row B
 
             // Row C
             // 0xC0
             RET_NZ => {
                 if !self.z_flag {
-                    self.pc = self.pop_address(mmap);                    
+                    self.pc = self.pop_address(mmap);
                     self.cost = 5;
                 } else {
                     self.cost = 2;
@@ -1189,6 +1191,7 @@ impl CentralProcessor {
             }
             // 0xCF
             RST_1 => {
+                self.push_address(mmap, self.pc);
                 self.pc = RST_1_ADDRESS.into();
                 self.cost = 4;
             }
@@ -1198,6 +1201,7 @@ impl CentralProcessor {
             // 0xE0
             LD_a8_A(addr) => {
                 let target = Address(0xFF00) + addr;
+                println!("Writing {target}");
                 mmap.write(target, self.a);
                 self.cost = 3;
             }
@@ -1219,6 +1223,18 @@ impl CentralProcessor {
                 let addr = Address(0xFF00) + addr;
                 self.a = mmap.read(addr);
                 self.cost = 3;
+            }
+            // 0xF1
+            POP_AF => {
+                let addr = self.pop_address(mmap);
+                self.write_af(addr);
+                self.cost = 3;
+            }
+
+            // 0xF5
+            PUSH_AF => {
+                self.push_address(mmap, self.read_af());
+                self.cost = 4;
             }
 
             // 0xFE
@@ -1248,7 +1264,7 @@ impl CentralProcessor {
             }
             // 0xCB7C
             BIT_7_H => {
-                self.z_flag = self.h.is_bit_set(7);
+                self.z_flag = !self.h.is_bit_set(7);
                 self.n_flag = false;
                 self.h_flag = true;
                 self.cost = 2;

@@ -24,6 +24,7 @@ pub const IO_END: u16 = 0xFF7F;
 pub const HRAM_START: u16 = 0xFF80;
 pub const HRAM_END: u16 = 0xFFFE;
 pub const INTERRUPT_ENABLE: u16 = 0xFFFF;
+pub const BOOTROM_ENABLE: u16 = 0xFF50;
 
 // SIZE CONSTANTS
 pub const WRAM_SIZE: usize = 0x8000; // 32 KB

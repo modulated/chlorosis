@@ -5,7 +5,9 @@ use super::{opcodes::Opcode, CentralProcessor};
 impl CentralProcessor {
     pub fn fetch_instruction(&mut self, mmap: &mut MemoryMap) -> Opcode {
         use Opcode::*;
+        let addr = self.pc;
         let op = self.consume_byte(mmap);
+        print!("{addr}: {}  -  ", op);
 
         match op.0 {
             // Row 0

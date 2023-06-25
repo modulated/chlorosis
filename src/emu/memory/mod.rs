@@ -15,7 +15,7 @@ pub struct MemoryMap {
     interrupt: Byte,
     rom_bank: usize,
     vram_bank: usize,
-    wram_bank: usize,
+    wram_bank: usize
 }
 
 impl MemoryMap {
@@ -25,7 +25,9 @@ impl MemoryMap {
 
     pub fn map(&mut self, address: Address) -> &mut Byte {
         match address.0 {
-            ROM_0_START..=ROM_0_END => &mut self.rom[address],
+            ROM_0_START..=ROM_0_END => {            
+                &mut self.rom[address]
+            }
             ROM_1_START..=ROM_1_END => {
                 &mut self.rom[address + Address(ROM_1_START) * (self.rom_bank - 1)]
             }
@@ -53,6 +55,10 @@ impl MemoryMap {
     }
 
     pub fn write(&mut self, address: Address, value: Byte) {
+        if address.0 == BOOTROM_ENABLE {
+            print!("BOOT ACCESS");
+            std::process::exit(0);
+        }
         *self.map(address) = value;
     }
 
@@ -92,7 +98,7 @@ impl MemoryMap {
 
 impl Default for MemoryMap {
     fn default() -> Self {
-        let mut out = Self {
+        Self {
             boot: include_bytes!("../../../cgb_boot.bin")
                 .iter()
                 .cloned()
@@ -109,11 +115,7 @@ impl Default for MemoryMap {
             hram: vec![Byte(0); HRAM_SIZE],
             io: vec![Byte(0); IO_SIZE],
             interrupt: Byte(0),
-        };
-        for i in BOOT_ROM_START..=BOOT_ROM_END {
-            out.rom[i as usize] = out.boot[i as usize];
-        }
-        out
+        }    
     }
 }
 

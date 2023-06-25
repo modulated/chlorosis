@@ -6,10 +6,10 @@ mod fetch;
 mod macros;
 mod opcodes;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CentralProcessor {
     a: Byte,
-    f: Byte,
+    // f: Byte,
     b: Byte,
     c: Byte,
     d: Byte,
@@ -25,6 +25,12 @@ pub struct CentralProcessor {
     // interupt_master_enable: bool,
     cost: u8,
     cycle_count: u64,
+}
+
+impl Default for CentralProcessor {
+    fn default() -> Self {
+        Self { a: Default::default(), b: Default::default(), c: Default::default(), d: Default::default(), e: Default::default(), h: Default::default(), l: Default::default(), z_flag: Default::default(), n_flag: Default::default(), h_flag: Default::default(), c_flag: Default::default(), pc: Address(0x0100), sp: Address(0xFFFE), cost: Default::default(), cycle_count: Default::default() }
+    }
 }
 
 impl CentralProcessor {
@@ -49,6 +55,15 @@ impl CentralProcessor {
         self.dump_state();
     }
 
+    pub fn read_f(&self) -> Byte { // TODO: may be able to make const?
+        let mut b = Byte(0x0);
+        b.write_bit(7, self.z_flag);
+        b.write_bit(6, self.n_flag);
+        b.write_bit(5, self.h_flag);
+        b.write_bit(4, self.c_flag);
+        b
+    }
+
     pub const fn read_bc(&self) -> Address {
         Address(((self.b.0 as u16) << 8) + self.c.0 as u16)
     }
@@ -59,6 +74,10 @@ impl CentralProcessor {
 
     pub const fn read_hl(&self) -> Address {
         Address(((self.h.0 as u16) << 8) + self.l.0 as u16)
+    }
+
+    pub fn read_af(&self) -> Address {
+        Address(((self.a.0 as u16) << 8) + self.read_f().0 as u16)
     }
 
     pub fn consume_byte(&mut self, mmap: &mut MemoryMap) -> Byte {
@@ -85,8 +104,8 @@ impl CentralProcessor {
         println!("Cost: {}", self.cost);
         println!("PC: {} SP: {}", self.pc, self.sp);
         println!(
-            "A: {} F: {} B: {} C: {} D: {} E: {} H: {} L: {}",
-            self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l
+            "A: {} B: {} C: {} D: {} E: {} H: {} L: {}",
+            self.a, self.b, self.c, self.d, self.e, self.h, self.l
         );
         println!(
             "Z: {} N: {} H: {} C: {}",
@@ -111,6 +130,13 @@ impl CentralProcessor {
         Address::from_pair(h, l)
     }
 
+    fn write_f(&mut self, val: Byte) {
+        self.z_flag = val.is_bit_set(7);
+        self.n_flag = val.is_bit_set(6);
+        self.h_flag = val.is_bit_set(5);
+        self.c_flag = val.is_bit_set(4);
+    }
+
     fn write_bc(&mut self, addr: Address) {
         let (b, c) = addr.split();
         self.b = b;
@@ -127,6 +153,12 @@ impl CentralProcessor {
         let (h, l) = addr.split();
         self.h = h;
         self.l = l;
+    }
+
+    fn write_af(&mut self, addr: Address) {
+        let (a, f) = addr.split();
+        self.a = a;
+        self.write_f(f);
     }
 }
 
