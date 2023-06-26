@@ -1,17 +1,9 @@
-[package]
-name = "gb_chloro"
-version = "0.1.0"
-edition = "2021"
-default-run = "bootrom"
+[workspace]
+members = [
+	"chlorosis_core",
+	"debugger"
+]
+default-members = ["debugger"]
 
-[lib]
-doctest = false
-
-[[bin]]
-name = "bootrom"
-test = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-bitflags = "2.3.2"

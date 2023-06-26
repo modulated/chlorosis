@@ -4,9 +4,9 @@ use super::{
 
 #[derive(Debug, Default)]
 pub struct Device {
-    mmap: MemoryMap,
-    cpu: CentralProcessor,
-    ppu: PixelProcessor,
+    pub mmap: MemoryMap,
+    pub cpu: CentralProcessor,
+    pub ppu: PixelProcessor,
     audio: AudioProcessor,
     screen: Screen,
     cartrige: Option<CartrigeHeader>,
