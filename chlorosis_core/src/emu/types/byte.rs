@@ -29,7 +29,7 @@ impl Byte {
     }
 
     pub const fn to_signed(self) -> SignedByte {
-        SignedByte(-((!self.0 + 1) as i8))
+        SignedByte(-((!self.0.wrapping_add(1)) as i8))
     }
 }
 

@@ -14,9 +14,7 @@ impl CentralProcessor {
             // Row 0
             // 0x00
             NOP => {
-                println!("{}: NOP", self.pc);
-                self.dump_state();
-                mmap.dump_rom();
+                println!("{}: NOP", self.pc);                
                 self.cost = 1;
             }
             // 0x01
@@ -304,6 +302,15 @@ impl CentralProcessor {
             // Row 2
 
             // Row 3
+            // 0x30
+            JR_NC_s8(signed) => {
+                if !self.c_flag {
+                    self.pc = Address(((self.pc.0) as i32 + signed.0 as i32) as u16);
+                    self.cost = 3;
+                } else {
+                    self.cost = 2;
+                }
+            }
             // 0x31
             LD_SP_d16(val) => {
                 self.sp = val;
@@ -1471,8 +1478,6 @@ impl CentralProcessor {
                 self.h_flag = true;
                 self.cost = 2;
             }
-
-            _ => panic!("Unimplemented instruction {:?}", op),
         }
         assert!(self.cost != 0, "Forgot to simulate instruction cycle cost");
         self.cost -= 1;
