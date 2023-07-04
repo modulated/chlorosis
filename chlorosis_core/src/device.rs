@@ -5,7 +5,7 @@ use std::{
 
 use super::{Address, Byte};
 
-use crate::{Event, Joypad, KeyCode, constants::*};
+use crate::{Event, Joypad, KeyCode, constants::*, Infrared, Timer};
 
 use super::{types::CartrigeHeader, AudioProcessor, CentralProcessor, PixelProcessor};
 
@@ -23,6 +23,8 @@ pub struct Device {
     interrupt: Byte,
     rom_bank: usize,
     wram_bank: Byte,
+    infrared: Infrared,
+    timer: Timer,
     state: DeviceState,
 }
 
@@ -42,6 +44,8 @@ impl Device {
             _audio: None,
             cartrige: None,
             joypad: Joypad::default(),
+            infrared: Infrared::default(),
+            timer: Timer::default(),
             rom: vec![Byte(0); ROM_BANK_SIZE * 2], // TODO: need better way of determing ROM vec size
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
@@ -154,6 +158,8 @@ impl Device {
         self.dump_cartrige_header();
         // TODO: read rest of ROM
 
+        self.state = DeviceState::Running;
+
         Ok(())
     }
 
@@ -175,32 +181,23 @@ impl Device {
             DEADZONE_1_START..=DEADZONE_1_END => panic!("Prohibited memory access at {address}"),
 
             // IO START
-            0xFF00 => self.joypad.read(), // Joypad
-            0xFF01..=0xFF02 => {
-                unimplemented!("Serial")
-            } // Serial
-            0xFF03 => panic!("Prohibited memory access at {address}"),
-            0xFF04..=0xFF07 => {
-                unimplemented!("Timers")
-            } // Timers
-            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"),
-            0xFF0F => self.interrupt, // Interrupt
-            0xFF10..=0xFF3F => {
-                unimplemented!("Audio")
-            } // Audio
-            0xFF40..=0xFF55 => self.ppu.read_io(address),
-            0xFF56 => unimplemented!("Infrared comm port"), // Infrared Com Port
-            0xFF57..=0xFF6F => self.ppu.read_io(address),
-            0xFF70 => self.wram_bank, // WRAM BANK
-            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"),
-            0xFF76 => {
-                unimplemented!("Audio")
-            } //audio_1_2},
-            0xFF77 => {
-                unimplemented!("Audio")
-            } //audio_3_4},
-            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"),
+            0xFF00 => self.joypad.read(),                                       // Joypad
+            0xFF01..=0xFF02 => Byte(0),                                         // TODO: Serial
+            0xFF03 => panic!("Prohibited memory access at {address}"),          // Prohibited
+            0xFF04..=0xFF07 => self.timer.read(address),                        // Timers
+            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF0F => self.interrupt,                                           // Interrupt
+            0xFF10..=0xFF3F => unimplemented!("Audio"),                         // Audio
+            0xFF40..=0xFF55 => self.ppu.read_io(address),                       // PPU
+            0xFF56 => self.infrared.read(),                                     // Infrared Com Port
+            0xFF57..=0xFF6F => self.ppu.read_io(address),                       // PPU
+            0xFF70 => self.wram_bank,                                           // WRAM BANK
+            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF76 => unimplemented!("Audio"),                                  // Audio 1&2
+            0xFF77 => unimplemented!("Audio"),                                  // Audio 3&4
+            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
+
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)],
             INTERRUPT_ENABLE => self.interrupt,
         }
@@ -226,26 +223,23 @@ impl Device {
             DEADZONE_1_START..=DEADZONE_1_END => panic!("Prohibited memory access at {address}"),
 
             // IO_START
-            0xFF00 => {
-                self.joypad.write(value);
-            } // Joypad
-            0xFF01..=0xFF02 => {
-                unimplemented!("Serial")
-            } // Serial
-            0xFF03 => panic!("Prohibited memory access at {address}"),
-            0xFF04..=0xFF07 => unimplemented!("Timers"), // Timers
-            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"),
-            0xFF0F => self.interrupt = value,           // Interrupt
-            0xFF10..=0xFF3F => unimplemented!("Audio"), // Audio
-            0xFF40..=0xFF55 => self.ppu.write_io(address, value),
-            0xFF56 => unimplemented!("Infrared comm port"), // Infrared Com Port
-            0xFF57..=0xFF6F => self.ppu.write_io(address, value),
-            0xFF70 => self.wram_bank = value, // WRAM BANK
-            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"),
-            0xFF76 => unimplemented!("Audio"), // Audio channels 1 & 2,
-            0xFF77 => unimplemented!("Audio"), // Audio channels 3 & 4,
-            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"),
+            0xFF00 => self.joypad.write(value),                                 // Joypad
+            0xFF01..=0xFF02 => {},                                              // TODO: Serial
+            0xFF03 => panic!("Prohibited memory access at {address}"),          // Prohibited
+            0xFF04..=0xFF07 =>self.timer.write(address, value),                 // Timers
+            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF0F => self.interrupt = value,                                   // Interrupt
+            0xFF10..=0xFF3F => unimplemented!("Audio"),                         // Audio
+            0xFF40..=0xFF55 => self.ppu.write_io(address, value),               // PPU
+            0xFF56 => self.infrared.write(value),                               // Infrared Com Port
+            0xFF57..=0xFF6F => self.ppu.write_io(address, value),               // PPU
+            0xFF70 => self.wram_bank = value,                                   // WRAM BANK
+            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF76 => unimplemented!("Audio"),                                  // Audio channels 1 & 2,
+            0xFF77 => unimplemented!("Audio"),                                  // Audio channels 3 & 4,
+            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
+
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)] = value,
             INTERRUPT_ENABLE => self.interrupt = value,
         }
@@ -285,6 +279,7 @@ impl Device {
     }
 
     fn handle_event(&mut self, event: Event) {
+        println!("{event:?}");
         match event {
             Event::KeyDown(k) => self.handle_keydown(k),
             Event::KeyUp(k) => self.handle_keyup(k),

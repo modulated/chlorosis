@@ -1,7 +1,7 @@
 use std::{time::Duration, sync::mpsc::Sender};
 
 use chlorosis_core::{Device, Event, KeyCode};
-use minifb::{Key, Menu, Window, WindowOptions};
+use minifb::{Key, Menu, Window, WindowOptions, MENU_KEY_CTRL};
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
@@ -77,7 +77,11 @@ fn build_window() -> Window {
     window.limit_update_rate(Some(Duration::from_millis(16)));
 
     let mut menu = Menu::new("File").unwrap();
-    menu.add_item("Open", 1).build();
+    menu
+        .add_item("Open ROM", 1)
+        .shortcut(Key::O, MENU_KEY_CTRL)
+        .build();
+    menu.add_item("Reset", 2).build();
     window.add_menu(&menu);
 
     window
@@ -89,6 +93,11 @@ fn key_to_keycode(k: &Key) -> Option<KeyCode> {
         Key::S => Some(KeyCode::Down),
         Key::A => Some(KeyCode::Left),
         Key::D => Some(KeyCode::Right),
+        Key::O => Some(KeyCode::A),
+        Key::P => Some(KeyCode::B),
+        Key::Enter => Some(KeyCode::Start),
+        Key::RightShift => Some(KeyCode::Select),
+        
         _ => None,
     }
 }
@@ -100,6 +109,9 @@ fn handle_menu(menu: usize, sender: &Sender<Event>) {
             if let Some(f) = f {
                 sender.send(Event::LoadFile(f)).unwrap();
             }
+        }
+        2 => {
+            sender.send(Event::Reset).unwrap();
         }
         _ => println!("Unhandled menu {menu}")
     }     
