@@ -85,6 +85,14 @@ impl std::ops::Shr<u8> for Byte {
     }
 }
 
+impl std::ops::BitAnd<u8> for Byte {
+    type Output = Self;
+
+    fn bitand(self, rhs: u8) -> Self::Output {
+        Self(self.0 & rhs)
+    }
+}
+
 impl std::ops::AddAssign<u8> for Byte {
     fn add_assign(&mut self, rhs: u8) {
         self.0 = self.0 + rhs;
@@ -129,7 +137,7 @@ impl std::ops::BitOrAssign<Self> for Byte {
 
 #[cfg(test)]
 mod tests {
-    use crate::emu::Byte;
+    use crate::Byte;
 
     #[test]
     fn test_write_bit() {

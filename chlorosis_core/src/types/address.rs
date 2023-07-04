@@ -73,13 +73,13 @@ impl std::ops::AddAssign<u16> for Address {
 
 impl std::ops::AddAssign<i32> for Address {
     fn add_assign(&mut self, rhs: i32) {
-        self.0 = self.0 + rhs as u16;
+        self.0 = self.0.wrapping_add(rhs as u16);
     }
 }
 
 impl std::ops::AddAssign<Byte> for Address {
     fn add_assign(&mut self, rhs: Byte) {
-        self.0 = self.0 + (rhs.0 as u16);
+        self.0 = self.0.wrapping_add(rhs.0 as u16);
     }
 }
 
@@ -187,7 +187,7 @@ impl IndexMut<Address> for Vec<Byte> {
 
 #[cfg(test)]
 mod test {
-    use crate::emu::{Address, Byte};
+    use crate::{Address, Byte};
 
     #[test]
     fn test_split_addr() {

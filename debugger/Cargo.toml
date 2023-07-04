@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 chlorosis_core = {path = "../chlorosis_core"}
-softbuffer = "0.3"
+minifb = "0.24"
+native-dialog = "0.6"

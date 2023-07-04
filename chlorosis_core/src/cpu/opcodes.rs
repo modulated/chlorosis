@@ -1,4 +1,4 @@
-use crate::emu::{types::SignedByte, Address, Byte};
+use crate::{Address, Byte, SignedByte};
 
 // Opcodes have a cycle count and byte count
 

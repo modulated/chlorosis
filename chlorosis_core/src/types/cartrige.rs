@@ -1,7 +1,7 @@
 use std::mem::transmute;
 
-use super::Byte;
-
+use crate::Byte;
+#[allow(dead_code)]
 #[derive(Debug)]
 struct CartrigeHeaderRaw {
     title: [u8; 16],            // 0x134 - 0x143
@@ -19,6 +19,7 @@ struct CartrigeHeaderRaw {
     global_checksum: (u8, u8),  // 0x14E - 0x14F - not verified
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct CartrigeHeader {
     title: String,
@@ -136,12 +137,14 @@ impl TryFrom<u8> for SgbSupport {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum Destination {
     Japan = 0x00,
     NotJapan = 0x01,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum LicenseeCode {
     None = 0x00,
@@ -172,6 +175,7 @@ enum LicenseeCode {
     BulletProof, // TODO: incomplete
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum OldLicenseeCode {
     None = 0x00,
@@ -182,6 +186,7 @@ enum OldLicenseeCode {
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
+#[allow(dead_code)]
 enum MemoryBankControllerType {
     ROM_ONLY = 0x00,
     MBC1 = 0x01,
@@ -237,7 +242,7 @@ const fn get_ram_size(code: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::emu::types::cartrige::get_rom_size;
+    use crate::types::cartrige::get_rom_size;
 
     #[test]
     fn test_rom_size() {

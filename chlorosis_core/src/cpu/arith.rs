@@ -1,4 +1,4 @@
-use crate::emu::{types::SignedByte, Address, Byte};
+use crate::{types::SignedByte, Address, Byte};
 
 use super::CentralProcessor;
 
@@ -129,11 +129,7 @@ impl CentralProcessor {
     }
 
     pub fn check_half_carry_add_byte(&mut self, a: Byte, b: Byte) {
-        if (((a.0 & 0xF).wrapping_add(b.0 & 0xF)) & 0x10) == 0x10 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
+        self.h_flag = (a.0 & 0xF) + (b.0 & 0xF) > 0xF;
     }
 
     pub fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
@@ -145,11 +141,7 @@ impl CentralProcessor {
     }
 
     pub fn check_half_carry_sub_byte(&mut self, a: Byte, b: Byte) {
-        if (((a.0 & 0xF).wrapping_sub(b.0 & 0xF)) & 0x10) == 0x10 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
+        self.h_flag = (a.0 & 0xF) < (b.0 & 0xF);
     }
 
     pub fn check_carry_sub_byte(&mut self, a: Byte, b: Byte) {
@@ -159,5 +151,40 @@ impl CentralProcessor {
         } else {
             self.c_flag = false;
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{Byte, CentralProcessor};
+    #[test]
+    fn test_carry_add_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_carry_add_byte(Byte(0x80), Byte(0x80));
+        assert!(cpu.c_flag);
+        cpu.check_carry_add_byte(Byte(0x0F), Byte(0x70));
+        assert!(!cpu.c_flag);
+    }
+
+    #[test]
+    fn test_half_carry_add_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_half_carry_add_byte(Byte(0x08), Byte(0x08));
+        assert!(cpu.h_flag);
+        cpu.check_half_carry_add_byte(Byte(0x04), Byte(0x10));
+        assert!(!cpu.h_flag);
+        cpu.check_half_carry_add_byte(Byte(0x08), Byte(0x01));
+        assert!(!cpu.h_flag);
+    }
+
+    #[test]
+    fn test_half_carry_sub_byte() {
+        let mut cpu = CentralProcessor::new();
+        cpu.check_half_carry_sub_byte(Byte(0x01), Byte(0x00));
+        assert!(!cpu.h_flag);
+        cpu.check_half_carry_sub_byte(Byte(0x02), Byte(0x10));
+        assert!(cpu.h_flag);
+        cpu.check_half_carry_sub_byte(Byte(0x08), Byte(0x01));
+        assert!(!cpu.h_flag);
     }
 }
