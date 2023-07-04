@@ -1,5 +1,6 @@
 use crate::{
-    addition_register_pairs, constants::*, decrement_register, increment_register, Address, Byte, Device
+    addition_register_pairs, constants::*, decrement_register, increment_register, Address, Byte,
+    Device,
 };
 
 use super::opcodes::Opcode;
@@ -106,7 +107,7 @@ impl Device {
             // Row 1
             // 0x10
             STOP(_) => {
-                // TODO: Implement
+                // TODO: Implement STOP operation
                 // IF all IE flags reset AND input P10 to P13 are LOW
                 // STOP SYSTEM CLOCK and OSCILLATOR CIRCUIT and LCD controller
                 // Cancelled by RESET signal
@@ -691,7 +692,7 @@ impl Device {
             }
             // 0x76
             HALT => {
-                // TODO: implement
+                // TODO: implement HALT
                 // STOP system clock
                 // Cancelled by interrupt or reset
                 // if interrupt master enable set PC is pushed to stack and jump to interrupt address
@@ -1476,7 +1477,10 @@ impl Device {
                 self.cpu.cost = 2;
             }
         }
-        assert!(self.cpu.cost != 0, "Forgot to simulate instruction cycle cost");
+        assert!(
+            self.cpu.cost != 0,
+            "Forgot to simulate instruction cycle cost"
+        );
         self.cpu.cost -= 1;
     }
 }

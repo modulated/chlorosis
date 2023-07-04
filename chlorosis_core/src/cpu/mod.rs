@@ -24,7 +24,7 @@ pub struct CentralProcessor {
     pub pc: Address,
     pub sp: Address,
     pub interupt_master_enable: bool,
-    pub cost: u8
+    pub cost: u8,
 }
 
 impl Default for CentralProcessor {
@@ -139,8 +139,6 @@ impl Device {
         // execute instruction
         self.execute(op);
     }
-
-
 
     pub fn consume_byte(&mut self) -> Byte {
         let out = self.read(self.cpu.pc);

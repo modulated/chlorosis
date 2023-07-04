@@ -114,9 +114,9 @@ impl PixelProcessor {
 
     pub const fn read_background_tile_map_area(&self) -> RangeInclusive<u16> {
         if self.LCDC.is_bit_set(3) {
-            0x9C00..=0x9FFF
+            0x1C00..=0x1FFF
         } else {
-            0x9800..=0x9BFF
+            0x1800..=0x1BFF
         }
     }
 
@@ -174,6 +174,7 @@ pub enum StatusMode {
     Draw = 0b11,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TileAddressingMode {
     Unsigned,
     Signed,

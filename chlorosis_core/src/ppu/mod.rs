@@ -1,8 +1,13 @@
+mod oam;
 mod pixel;
 mod registers;
 mod tile;
 
-use self::{pixel::Pixel, registers::StatusMode, tile::Tile};
+use self::{
+    pixel::Pixel,
+    registers::{StatusMode, TileAddressingMode},
+    tile::Tile,
+};
 use crate::{constants::*, Address, Byte};
 use std::collections::VecDeque;
 
@@ -172,17 +177,64 @@ impl PixelProcessor {
         }
     }
 
-    pub fn get_tile(&self, index: Byte) -> Tile {
+    // Tiles stored in VRAM, each bank holds 384 tiles (16 bytes each)
+    // Split into 3 blocks of 128 tiles
+    pub fn get_tile(&self, index: Byte, mode: TileAddressingMode) -> Tile {
         let mut b = [Byte(0); 16];
-        for (i, x) in self
-            .vram
-            .iter()
-            .skip(index.0 as usize * TILE_SIZE + self.vram_bank.0 as usize * VRAM_BANK_SIZE)
-            .take(TILE_SIZE)
-            .enumerate()
-        {
-            b[i] = *x;
+
+        match mode {
+            TileAddressingMode::Unsigned => {
+                for (i, x) in self
+                    .vram
+                    .iter()
+                    .skip(index.0 as usize * TILE_SIZE + self.vram_bank.0 as usize * VRAM_BANK_SIZE)
+                    .take(TILE_SIZE)
+                    .enumerate()
+                {
+                    b[i] = *x;
+                }
+            }
+            TileAddressingMode::Signed => {
+                if index.0 > 127 {
+                    for (i, x) in self
+                        .vram
+                        .iter()
+                        .skip(
+                            0x0800
+                                + index.0 as usize * TILE_SIZE
+                                + self.vram_bank.0 as usize * VRAM_BANK_SIZE,
+                        )
+                        .take(TILE_SIZE)
+                        .enumerate()
+                    {
+                        b[i] = *x;
+                    }
+                } else {
+                    for (i, x) in self
+                        .vram
+                        .iter()
+                        .skip(
+                            index.0 as usize * TILE_SIZE
+                                + self.vram_bank.0 as usize * VRAM_BANK_SIZE,
+                        )
+                        .take(TILE_SIZE)
+                        .enumerate()
+                    {
+                        b[i] = *x;
+                    }
+                }
+            }
         }
         Tile(b)
+    }
+
+    fn get_tile_map(&self) -> Vec<Tile> {
+        let mut out = Vec::with_capacity(32 * 32);
+        let mode = self.read_tile_addressing_mode();
+        for i in self.read_background_tile_map_area() {
+            let index = self.vram[i as usize]; // TODO: may need to implement bank switch
+            out.push(self.get_tile(index, mode))
+        }
+        out
     }
 }

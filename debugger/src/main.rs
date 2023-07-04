@@ -1,4 +1,4 @@
-use std::{time::Duration, sync::mpsc::Sender};
+use std::{sync::mpsc::Sender, time::Duration};
 
 use chlorosis_core::{Device, Event, KeyCode};
 use minifb::{Key, Menu, Window, WindowOptions, MENU_KEY_CTRL};
@@ -77,8 +77,7 @@ fn build_window() -> Window {
     window.limit_update_rate(Some(Duration::from_millis(16)));
 
     let mut menu = Menu::new("File").unwrap();
-    menu
-        .add_item("Open ROM", 1)
+    menu.add_item("Open ROM", 1)
         .shortcut(Key::O, MENU_KEY_CTRL)
         .build();
     menu.add_item("Reset", 2).build();
@@ -97,7 +96,7 @@ fn key_to_keycode(k: &Key) -> Option<KeyCode> {
         Key::P => Some(KeyCode::B),
         Key::Enter => Some(KeyCode::Start),
         Key::RightShift => Some(KeyCode::Select),
-        
+
         _ => None,
     }
 }
@@ -105,7 +104,10 @@ fn key_to_keycode(k: &Key) -> Option<KeyCode> {
 fn handle_menu(menu: usize, sender: &Sender<Event>) {
     match menu {
         1 => {
-            let f = native_dialog::FileDialog::new().add_filter("GBC ROM", &["gbc"]).show_open_single_file().unwrap();
+            let f = native_dialog::FileDialog::new()
+                .add_filter("GBC ROM", &["gbc"])
+                .show_open_single_file()
+                .unwrap();
             if let Some(f) = f {
                 sender.send(Event::LoadFile(f)).unwrap();
             }
@@ -113,6 +115,6 @@ fn handle_menu(menu: usize, sender: &Sender<Event>) {
         2 => {
             sender.send(Event::Reset).unwrap();
         }
-        _ => println!("Unhandled menu {menu}")
-    }     
+        _ => println!("Unhandled menu {menu}"),
+    }
 }

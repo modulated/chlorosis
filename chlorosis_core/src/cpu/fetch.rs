@@ -1,6 +1,6 @@
 use crate::Device;
 
-use super::{opcodes::Opcode};
+use super::opcodes::Opcode;
 
 impl Device {
     pub fn fetch_instruction(&mut self) -> Opcode {
