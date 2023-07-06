@@ -172,6 +172,10 @@ impl Device {
         Ok(())
     }
 
+    pub const fn get_cartridge_header(&self) -> Option<&CartrigeHeader> {
+        self.cartrige.as_ref()
+    }
+
     pub fn read(&mut self, address: Address) -> Byte {
         match address.0 {
             ROM_0_START..=ROM_0_END => self.rom[address],
