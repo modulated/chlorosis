@@ -10,7 +10,7 @@ use minifb::{Key, Menu, Window, WindowOptions, MENU_KEY_CTRL};
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
 const BLACK: [u32; WIDTH * HEIGHT] = [0; WIDTH * HEIGHT];
-const GREY: [u32; WIDTH * HEIGHT] = [0x5555; WIDTH * HEIGHT];
+const GREY: [u32; WIDTH * HEIGHT] = [0x00555555; WIDTH * HEIGHT];
 
 fn main() {
     let mut dev = Device::default();
