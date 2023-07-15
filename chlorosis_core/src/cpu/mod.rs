@@ -7,6 +7,7 @@ mod execute;
 mod fetch;
 mod macros;
 mod opcodes;
+mod registers;
 
 #[derive(Debug)]
 pub struct CentralProcessor {
