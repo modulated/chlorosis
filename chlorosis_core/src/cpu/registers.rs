@@ -1,4 +1,4 @@
-use crate::{CentralProcessor, types::Byte};
+use crate::{types::Byte, CentralProcessor};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Register {
@@ -8,11 +8,11 @@ pub enum Register {
     D,
     E,
     H,
-    L, 
+    L,
 }
 
 impl CentralProcessor {
-    pub fn read_register(&self, reg: Register) -> Byte {
+    pub const fn read_register(&self, reg: Register) -> Byte {
         match reg {
             Register::A => self.a,
             Register::B => self.b,
@@ -20,7 +20,7 @@ impl CentralProcessor {
             Register::D => self.d,
             Register::E => self.e,
             Register::H => self.h,
-            Register::L => self.l
+            Register::L => self.l,
         }
     }
 

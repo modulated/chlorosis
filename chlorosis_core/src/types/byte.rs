@@ -20,6 +20,11 @@ impl Byte {
         self.0 |= mask;
     }
 
+    pub fn clear_bit(&mut self, n: u8) {
+        let mask = !(1 << n);
+        self.0 &= mask;
+    }
+
     pub fn write_bit(&mut self, n: u8, set: bool) {
         if set {
             self.0 |= 1 << n;
@@ -146,5 +151,15 @@ mod tests {
         assert_eq!(b, Byte(0b00101110));
         b.write_bit(5, false);
         assert_eq!(b, Byte(0b00001110));
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut b = Byte(0b1010_1010);
+        b.clear_bit(1);
+        assert_eq!(b, Byte(0b1010_1000));
+
+        b.clear_bit(6);
+        assert_eq!(b, Byte(0b1010_1000));
     }
 }

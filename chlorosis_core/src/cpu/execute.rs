@@ -2140,134 +2140,701 @@ impl Device {
             }
             // Row 7
 
-            RES_0_B => todo!(),
-            RES_0_C => todo!(),
-            RES_0_D => todo!(),
-            RES_0_E => todo!(),
-            RES_0_H => todo!(),
-            RES_0_L => todo!(),
-            RES_0_aHL => todo!(),
-            RES_0_A => todo!(),
-            RES_1_B => todo!(),
-            RES_1_C => todo!(),
-            RES_1_D => todo!(),
-            RES_1_E => todo!(),
-            RES_1_H => todo!(),
-            RES_1_L => todo!(),
-            RES_1_aHL => todo!(),
-            RES_1_A => todo!(),
-            RES_2_B => todo!(),
-            RES_2_C => todo!(),
-            RES_2_D => todo!(),
-            RES_2_E => todo!(),
-            RES_2_H => todo!(),
-            RES_2_L => todo!(),
-            RES_2_aHL => todo!(),
-            RES_2_A => todo!(),
-            RES_3_B => todo!(),
-            RES_3_C => todo!(),
-            RES_3_D => todo!(),
-            RES_3_E => todo!(),
-            RES_3_H => todo!(),
-            RES_3_L => todo!(),
-            RES_3_aHL => todo!(),
-            RES_3_A => todo!(),
-            RES_4_B => todo!(),
-            RES_4_C => todo!(),
-            RES_4_D => todo!(),
-            RES_4_E => todo!(),
-            RES_4_H => todo!(),
-            RES_4_L => todo!(),
-            RES_4_aHL => todo!(),
-            RES_4_A => todo!(),
-            RES_5_B => todo!(),
-            RES_5_C => todo!(),
-            RES_5_D => todo!(),
-            RES_5_E => todo!(),
-            RES_5_H => todo!(),
-            RES_5_L => todo!(),
-            RES_5_aHL => todo!(),
-            RES_5_A => todo!(),
-            RES_6_B => todo!(),
-            RES_6_C => todo!(),
-            RES_6_D => todo!(),
-            RES_6_E => todo!(),
-            RES_6_H => todo!(),
-            RES_6_L => todo!(),
-            RES_6_aHL => todo!(),
-            RES_6_A => todo!(),
-            RES_7_B => todo!(),
-            RES_7_C => todo!(),
-            RES_7_D => todo!(),
-            RES_7_E => todo!(),
-            RES_7_H => todo!(),
-            RES_7_L => todo!(),
-            RES_7_aHL => todo!(),
-            RES_7_A => todo!(),
-            SET_0_B => todo!(),
-            SET_0_C => todo!(),
-            SET_0_D => todo!(),
-            SET_0_E => todo!(),
-            SET_0_H => todo!(),
-            SET_0_L => todo!(),
-            SET_0_aHL => todo!(),
-            SET_0_A => todo!(),
-            SET_1_B => todo!(),
-            SET_1_C => todo!(),
-            SET_1_D => todo!(),
-            SET_1_E => todo!(),
-            SET_1_H => todo!(),
-            SET_1_L => todo!(),
-            SET_1_aHL => todo!(),
-            SET_1_A => todo!(),
-            SET_2_B => todo!(),
-            SET_2_C => todo!(),
-            SET_2_D => todo!(),
-            SET_2_E => todo!(),
-            SET_2_H => todo!(),
-            SET_2_L => todo!(),
-            SET_2_aHL => todo!(),
-            SET_2_A => todo!(),
-            SET_3_B => todo!(),
-            SET_3_C => todo!(),
-            SET_3_D => todo!(),
-            SET_3_E => todo!(),
-            SET_3_H => todo!(),
-            SET_3_L => todo!(),
-            SET_3_aHL => todo!(),
-            SET_3_A => todo!(),
-            SET_4_B => todo!(),
-            SET_4_C => todo!(),
-            SET_4_D => todo!(),
-            SET_4_E => todo!(),
-            SET_4_H => todo!(),
-            SET_4_L => todo!(),
-            SET_4_aHL => todo!(),
-            SET_4_A => todo!(),
-            SET_5_B => todo!(),
-            SET_5_C => todo!(),
-            SET_5_D => todo!(),
-            SET_5_E => todo!(),
-            SET_5_H => todo!(),
-            SET_5_L => todo!(),
-            SET_5_aHL => todo!(),
-            SET_5_A => todo!(),
-            SET_6_B => todo!(),
-            SET_6_C => todo!(),
-            SET_6_D => todo!(),
-            SET_6_E => todo!(),
-            SET_6_H => todo!(),
-            SET_6_L => todo!(),
-            SET_6_aHL => todo!(),
-            SET_6_A => todo!(),
-            SET_7_B => todo!(),
-            SET_7_C => todo!(),
-            SET_7_D => todo!(),
-            SET_7_E => todo!(),
-            SET_7_H => todo!(),
-            SET_7_L => todo!(),
-            SET_7_aHL => todo!(),
-            SET_7_A => todo!(),
+            // Row 8
+            // 0xCB80
+            RES_0_B => {
+                self.cpu.b.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB81
+            RES_0_C => {
+                self.cpu.c.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB82
+            RES_0_D => {
+                self.cpu.d.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB83
+            RES_0_E => {
+                self.cpu.e.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB84
+            RES_0_H => {
+                self.cpu.h.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB85
+            RES_0_L => {
+                self.cpu.l.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB86
+            RES_0_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(0);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCB87
+            RES_0_A => {
+                self.cpu.a.clear_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCB88
+            RES_1_B => {
+                self.cpu.b.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB89
+            RES_1_C => {
+                self.cpu.c.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB8A
+            RES_1_D => {
+                self.cpu.d.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB8B
+            RES_1_E => {
+                self.cpu.e.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB8C
+            RES_1_H => {
+                self.cpu.h.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB8D
+            RES_1_L => {
+                self.cpu.l.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCB8E
+            RES_1_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(1);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCB8F
+            RES_1_A => {
+                self.cpu.a.clear_bit(1);
+                self.cpu.cost = 2;
+            }
+            // Row 8
+
+            // Row 9
+            // 0xCB90
+            RES_2_B => {
+                self.cpu.b.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB91
+            RES_2_C => {
+                self.cpu.c.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB92
+            RES_2_D => {
+                self.cpu.d.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB93
+            RES_2_E => {
+                self.cpu.e.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB94
+            RES_2_H => {
+                self.cpu.h.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB95
+            RES_2_L => {
+                self.cpu.l.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB96
+            RES_2_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(2);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCB97
+            RES_2_A => {
+                self.cpu.a.clear_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCB98
+            RES_3_B => {
+                self.cpu.b.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB99
+            RES_3_C => {
+                self.cpu.c.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB9A
+            RES_3_D => {
+                self.cpu.d.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB9B
+            RES_3_E => {
+                self.cpu.e.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB9C
+            RES_3_H => {
+                self.cpu.h.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB9D
+            RES_3_L => {
+                self.cpu.l.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCB9E
+            RES_3_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(3);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCB9F
+            RES_3_A => {
+                self.cpu.a.clear_bit(3);
+                self.cpu.cost = 2;
+            }
+            // Row 9
+
+            // Row A
+            // 0xCBA0
+            RES_4_B => {
+                self.cpu.b.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA1
+            RES_4_C => {
+                self.cpu.c.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA2
+            RES_4_D => {
+                self.cpu.d.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA3
+            RES_4_E => {
+                self.cpu.e.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA4
+            RES_4_H => {
+                self.cpu.h.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA5
+            RES_4_L => {
+                self.cpu.l.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA6
+            RES_4_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(4);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBA7
+            RES_4_A => {
+                self.cpu.a.clear_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA8
+            RES_5_B => {
+                self.cpu.b.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBA9
+            RES_5_C => {
+                self.cpu.c.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBAA
+            RES_5_D => {
+                self.cpu.d.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBAB
+            RES_5_E => {
+                self.cpu.e.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBAC
+            RES_5_H => {
+                self.cpu.h.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBAD
+            RES_5_L => {
+                self.cpu.l.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBAE
+            RES_5_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(5);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBAF
+            RES_5_A => {
+                self.cpu.a.clear_bit(5);
+                self.cpu.cost = 2;
+            }
+            // Row A
+
+            // Row B
+            // 0xCBB0
+            RES_6_B => {
+                self.cpu.b.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB1
+            RES_6_C => {
+                self.cpu.c.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB2
+            RES_6_D => {
+                self.cpu.d.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB3
+            RES_6_E => {
+                self.cpu.e.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB4
+            RES_6_H => {
+                self.cpu.h.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB5
+            RES_6_L => {
+                self.cpu.l.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB6
+            RES_6_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(6);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBB7
+            RES_6_A => {
+                self.cpu.a.clear_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB8
+            RES_7_B => {
+                self.cpu.b.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBB9
+            RES_7_C => {
+                self.cpu.c.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBBA
+            RES_7_D => {
+                self.cpu.d.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBBB
+            RES_7_E => {
+                self.cpu.e.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBBC
+            RES_7_H => {
+                self.cpu.h.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBBD
+            RES_7_L => {
+                self.cpu.l.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBBE
+            RES_7_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.clear_bit(7);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBBF
+            RES_7_A => {
+                self.cpu.a.clear_bit(7);
+                self.cpu.cost = 2;
+            }
+            // Row B
+
+            // Row C
+            // 0xCBC0
+            SET_0_B => {
+                self.cpu.b.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC1
+            SET_0_C => {
+                self.cpu.c.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC2
+            SET_0_D => {
+                self.cpu.d.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC3
+            SET_0_E => {
+                self.cpu.e.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC4
+            SET_0_H => {
+                self.cpu.h.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC5
+            SET_0_L => {
+                self.cpu.l.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC6
+            SET_0_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(0);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBC7
+            SET_0_A => {
+                self.cpu.a.set_bit(0);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC8
+            SET_1_B => {
+                self.cpu.b.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBC9
+            SET_1_C => {
+                self.cpu.c.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBCA
+            SET_1_D => {
+                self.cpu.d.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBCB
+            SET_1_E => {
+                self.cpu.e.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBCC
+            SET_1_H => {
+                self.cpu.h.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBCD
+            SET_1_L => {
+                self.cpu.l.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // 0xCBCE
+            SET_1_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(1);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBCF
+            SET_1_A => {
+                self.cpu.a.set_bit(1);
+                self.cpu.cost = 2;
+            }
+            // Row C
+
+            // Row D
+            // 0xCBD0
+            SET_2_B => {
+                self.cpu.b.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD1
+            SET_2_C => {
+                self.cpu.c.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD2
+            SET_2_D => {
+                self.cpu.d.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD3
+            SET_2_E => {
+                self.cpu.e.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD4
+            SET_2_H => {
+                self.cpu.h.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD5
+            SET_2_L => {
+                self.cpu.l.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD6
+            SET_2_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(2);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBD7
+            SET_2_A => {
+                self.cpu.a.set_bit(2);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD8
+            SET_3_B => {
+                self.cpu.b.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBD9
+            SET_3_C => {
+                self.cpu.c.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBDA
+            SET_3_D => {
+                self.cpu.d.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBDB
+            SET_3_E => {
+                self.cpu.e.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBDC
+            SET_3_H => {
+                self.cpu.h.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBDD
+            SET_3_L => {
+                self.cpu.l.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // 0xCBDE
+            SET_3_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(3);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBDF
+            SET_3_A => {
+                self.cpu.a.set_bit(3);
+                self.cpu.cost = 2;
+            }
+            // Row D
+
+            // Row E
+            // 0xCBE0
+            SET_4_B => {
+                self.cpu.b.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE1
+            SET_4_C => {
+                self.cpu.c.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE2
+            SET_4_D => {
+                self.cpu.d.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE3
+            SET_4_E => {
+                self.cpu.e.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE4
+            SET_4_H => {
+                self.cpu.h.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE5
+            SET_4_L => {
+                self.cpu.l.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE6
+            SET_4_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(4);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBE7
+            SET_4_A => {
+                self.cpu.a.set_bit(4);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE8
+            SET_5_B => {
+                self.cpu.b.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBE9
+            SET_5_C => {
+                self.cpu.c.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBEA
+            SET_5_D => {
+                self.cpu.d.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBEB
+            SET_5_E => {
+                self.cpu.e.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBEC
+            SET_5_H => {
+                self.cpu.h.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBED
+            SET_5_L => {
+                self.cpu.l.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // 0xCBEE
+            SET_5_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(5);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBEF
+            SET_5_A => {
+                self.cpu.a.set_bit(5);
+                self.cpu.cost = 2;
+            }
+            // Row E
+
+            // ROw F
+            // 0xCBF0
+            SET_6_B => {
+                self.cpu.b.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF1
+            SET_6_C => {
+                self.cpu.c.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF2
+            SET_6_D => {
+                self.cpu.d.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF3
+            SET_6_E => {
+                self.cpu.e.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF4
+            SET_6_H => {
+                self.cpu.h.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF5
+            SET_6_L => {
+                self.cpu.l.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF6
+            SET_6_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(6);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBF7
+            SET_6_A => {
+                self.cpu.a.set_bit(6);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF8
+            SET_7_B => {
+                self.cpu.b.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBF9
+            SET_7_C => {
+                self.cpu.c.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBFA
+            SET_7_D => {
+                self.cpu.d.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBFB
+            SET_7_E => {
+                self.cpu.e.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBFC
+            SET_7_H => {
+                self.cpu.h.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBFD
+            SET_7_L => {
+                self.cpu.l.set_bit(7);
+                self.cpu.cost = 2;
+            }
+            // 0xCBFE
+            SET_7_aHL => {
+                let mut val = self.read(self.cpu.read_hl());
+                val.set_bit(7);
+                self.write(self.cpu.read_hl(), val);
+                self.cpu.cost = 4;
+            }
+            // 0xCBFF
+            SET_7_A => {
+                self.cpu.a.set_bit(7);
+                self.cpu.cost = 2;
+            } // Row F
+              // End of CB
         }
         assert!(
             self.cpu.cost != 0,
