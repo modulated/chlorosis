@@ -7,6 +7,7 @@ pub mod device;
 mod frontend;
 mod infrared;
 mod joypad;
+mod mbc;
 mod ppu;
 mod timer;
 mod types;
