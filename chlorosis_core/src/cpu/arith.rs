@@ -13,11 +13,7 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn check_zero(&mut self, val: Byte) {
-        if val.0 == 0 {
-            self.z_flag = true;
-        } else {
-            self.z_flag = false;
-        }
+        self.z_flag = val.0 == 0;
     }
 
     #[inline(always)]
@@ -199,31 +195,19 @@ impl CentralProcessor {
     #[inline(always)]
     pub fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
         let res = a.0.wrapping_add(b.0);
-        if (res < a.0) || (res < b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
+        self.c_flag = (res < a.0) || (res < b.0);
     }
 
     #[inline(always)]
     pub fn check_carry_add_address(&mut self, a: Address, b: Address) {
         let res = a.0.wrapping_add(b.0);
-        if (res < a.0) || (res < b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
+        self.c_flag = (res < a.0) || (res < b.0)
     }
 
     #[inline(always)]
     pub fn check_carry_sub_address(&mut self, a: Address, b: Address) {
         let res = a.0.wrapping_sub(b.0);
-        if (res > a.0) || (res > b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
+        self.c_flag = (res > a.0) || (res > b.0);
     }
 
     #[inline(always)]
@@ -244,11 +228,7 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
-        if (((a.0 & 0xFFF).wrapping_add(b.0 & 0xFFF)) & 0x1000) == 0x1000 {
-            self.h_flag = true;
-        } else {
-            self.h_flag = false;
-        }
+        self.h_flag = (((a.0 & 0xFFF).wrapping_add(b.0 & 0xFFF)) & 0x1000) == 0x1000;
     }
 
     #[inline(always)]
@@ -259,11 +239,7 @@ impl CentralProcessor {
     #[inline(always)]
     pub fn check_carry_sub_byte(&mut self, a: Byte, b: Byte) {
         let res = a.0.wrapping_sub(b.0);
-        if (res > a.0) || (res > b.0) {
-            self.c_flag = true;
-        } else {
-            self.c_flag = false;
-        }
+        self.c_flag = (res > a.0) || (res > b.0);
     }
 }
 
