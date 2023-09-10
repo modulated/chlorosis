@@ -33,6 +33,10 @@ impl Byte {
         }
     }
 
+    pub const ZERO: Self = Self(0);
+    pub const MAX: Self = Self(0xFF);
+    pub const ONE: Self = Self(1);
+
     pub const fn to_signed(self) -> SignedByte {
         SignedByte(-((!self.0.wrapping_add(1)) as i8))
     }
@@ -100,13 +104,13 @@ impl std::ops::BitAnd<u8> for Byte {
 
 impl std::ops::AddAssign<u8> for Byte {
     fn add_assign(&mut self, rhs: u8) {
-        self.0 = self.0 + rhs;
+        self.0 = self.0.wrapping_add(rhs);
     }
 }
 
 impl std::ops::AddAssign<i32> for Byte {
     fn add_assign(&mut self, rhs: i32) {
-        self.0 = self.0 + rhs as u8;
+        self.0 = self.0.wrapping_add(rhs as u8);
     }
 }
 
