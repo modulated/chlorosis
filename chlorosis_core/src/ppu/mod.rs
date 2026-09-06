@@ -5,7 +5,7 @@ mod tile;
 
 use self::{
     pixel::Pixel,
-    registers::{StatusMode, TileAddressingMode},
+    registers::{ObjectSize, StatusMode, TileAddressingMode},
     tile::Tile,
 };
 use crate::{
@@ -59,6 +59,10 @@ pub struct PixelProcessor {
     /// Frame being drawn, one scanline at a time during HBlank. Copied into
     /// `buffer` when the frame finishes at the start of VBlank.
     frame: [u32; FRAME_LEN],
+    /// Background colour id (0-3) for each pixel of the line currently being
+    /// drawn. Sprites consult it for the BG-over-OBJ priority bit, which the
+    /// final `0x00RRGGBB` frame no longer carries.
+    bg_line_ids: [u8; SCREEN_WIDTH],
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
     pub oam: [Byte; OAM_SIZE],
@@ -99,6 +103,7 @@ impl Default for PixelProcessor {
         Self {
             buffer: None,
             frame: [0; FRAME_LEN],
+            bg_line_ids: [0; SCREEN_WIDTH],
             vram: [Byte(0); VRAM_SIZE],
             vram_bank: Default::default(),
             oam: [Byte(0); OAM_SIZE],
@@ -222,6 +227,7 @@ impl PixelProcessor {
                 // per scanline (rather than once per frame) captures mid-frame
                 // scroll changes, which many games rely on.
                 self.render_background_line(self.LY.0);
+                self.render_sprite_line(self.LY.0);
                 if self.STAT.is_bit_set(3) {
                     requested |= Interrupts::LCD;
                 }
@@ -256,6 +262,7 @@ impl PixelProcessor {
             for pixel in &mut self.frame[line_start..line_start + SCREEN_WIDTH] {
                 *pixel = blank;
             }
+            self.bg_line_ids = [0; SCREEN_WIDTH];
             return;
         }
 
@@ -280,6 +287,7 @@ impl PixelProcessor {
             let bit = 7 - col_in_tile;
             let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
 
+            self.bg_line_ids[screen_x] = color_id;
             self.frame[line_start + screen_x] = self.bg_shade(color_id);
         }
     }
@@ -288,6 +296,92 @@ impl PixelProcessor {
     const fn bg_shade(&self, color_id: u8) -> u32 {
         let shade = (self.BGP.0 >> (color_id * 2)) & 0b11;
         SHADES[shade as usize]
+    }
+
+    /// Overlay the sprites that intersect scanline `ly` onto the working frame,
+    /// on top of the background already drawn there.
+    ///
+    /// DMG rules: objects are 8x8 or 8x16 (LCDC bit 2); at most 10 per line, in
+    /// OAM order; drawn lowest-priority first so lower-X (then lower-OAM-index)
+    /// objects land on top. Colour id 0 is transparent, and an object's
+    /// priority bit keeps it behind non-zero background pixels.
+    fn render_sprite_line(&mut self, ly: u8) {
+        if !self.is_obj_enabled() {
+            return;
+        }
+        let height: i16 = match self.read_obj_size() {
+            ObjectSize::Tall => 16,
+            ObjectSize::Square => 8,
+        };
+        let ly = ly as i16;
+
+        // Objects intersecting this line, capped at the hardware's 10.
+        let mut chosen = [0usize; 10];
+        let mut count = 0;
+        for i in 0..40 {
+            let sprite_y = self.oam[i * 4].0 as i16 - 16;
+            if ly >= sprite_y && ly < sprite_y + height {
+                chosen[count] = i;
+                count += 1;
+                if count == 10 {
+                    break;
+                }
+            }
+        }
+        let chosen = &mut chosen[..count];
+        // Priority order is lower X first, ties broken by OAM index.
+        chosen.sort_by_key(|&i| (self.oam[i * 4 + 1].0, i));
+        // Draw in reverse so the highest-priority object ends up on top.
+        for &i in chosen.iter().rev() {
+            self.draw_sprite(i, ly, height);
+        }
+    }
+
+    fn draw_sprite(&mut self, index: usize, ly: i16, height: i16) {
+        let sprite_y = self.oam[index * 4].0 as i16 - 16;
+        let sprite_x = self.oam[index * 4 + 1].0 as i16 - 8;
+        let tile = self.oam[index * 4 + 2].0;
+        let attr = self.oam[index * 4 + 3];
+
+        let behind_bg = attr.is_bit_set(7);
+        let y_flip = attr.is_bit_set(6);
+        let x_flip = attr.is_bit_set(5);
+        let palette = if attr.is_bit_set(4) { self.OBP1 } else { self.OBP0 };
+
+        let mut row = (ly - sprite_y) as usize;
+        if y_flip {
+            row = (height as usize) - 1 - row;
+        }
+        // In 8x16 mode the low bit of the tile number is ignored; the top tile
+        // is even, the bottom odd.
+        let tile_number = if height == 16 {
+            (tile & 0xFE) | u8::from(row >= 8)
+        } else {
+            tile
+        };
+        let plane = tile_data_offset(tile_number, true) + (row % 8) * TILE_ROW_BYTES;
+        let low = self.vram[plane].0;
+        let high = self.vram[plane + 1].0;
+
+        for col in 0..8usize {
+            let x = sprite_x + col as i16;
+            if x < 0 || x >= SCREEN_WIDTH as i16 {
+                continue;
+            }
+            let x = x as usize;
+
+            let bit = if x_flip { col } else { 7 - col };
+            let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+            if color_id == 0 {
+                continue; // transparent
+            }
+            if behind_bg && self.bg_line_ids[x] != 0 {
+                continue; // background wins where it is non-zero
+            }
+
+            let shade = (palette.0 >> (color_id * 2)) & 0b11;
+            self.frame[ly as usize * SCREEN_WIDTH + x] = SHADES[shade as usize];
+        }
     }
 
     /// Whether the CPU can currently reach VRAM.
@@ -509,5 +603,89 @@ mod tests {
             ppu.step();
         }
         assert!(ppu.take_frame().is_some(), "a frame should be ready");
+    }
+
+    /// Place an 8x8 object: OAM entry `slot`, screen position `(x, y)`, using
+    /// `tile`, with attribute byte `attr`.
+    fn place_sprite(ppu: &mut PixelProcessor, slot: usize, x: u8, y: u8, tile: u8, attr: u8) {
+        ppu.oam[slot * 4] = Byte(y + 16);
+        ppu.oam[slot * 4 + 1] = Byte(x + 8);
+        ppu.oam[slot * 4 + 2] = Byte(tile);
+        ppu.oam[slot * 4 + 3] = Byte(attr);
+    }
+
+    /// A tile whose every pixel is colour id 3 (both planes set).
+    fn solid_tile(ppu: &mut PixelProcessor, tile: u8) {
+        for row in 0..8 {
+            ppu.vram[tile as usize * TILE_SIZE + row * 2] = Byte(0xFF);
+            ppu.vram[tile as usize * TILE_SIZE + row * 2 + 1] = Byte(0xFF);
+        }
+    }
+
+    #[test]
+    fn sprite_is_drawn_over_the_background() {
+        let mut ppu = PixelProcessor::default();
+        ppu.LCDC = Byte(0x93); // LCD + BG + OBJ on (bits 7,4,1,0)
+        ppu.OBP0 = Byte(0xE4); // identity palette
+        solid_tile(&mut ppu, 1);
+        place_sprite(&mut ppu, 0, 40, 0, 1, 0x00);
+
+        ppu.render_background_line(0);
+        ppu.render_sprite_line(0);
+
+        // Background is blank (VRAM zero -> id 0), the 8 sprite pixels are id 3.
+        assert_eq!(ppu.frame[40], SHADES[3]);
+        assert_eq!(ppu.frame[47], SHADES[3]);
+        assert_eq!(ppu.frame[48], SHADES[0], "sprite is 8 pixels wide");
+    }
+
+    #[test]
+    fn sprite_colour_zero_is_transparent() {
+        let mut ppu = PixelProcessor::default();
+        ppu.LCDC = Byte(0x93);
+        ppu.OBP0 = Byte(0xE4);
+        // Tile 1 row 0: only the leftmost pixel is non-zero (id 1).
+        ppu.vram[TILE_SIZE] = Byte(0x80);
+        place_sprite(&mut ppu, 0, 0, 0, 1, 0x00);
+        ppu.frame[1] = SHADES[2]; // pre-existing background under a zero pixel
+
+        ppu.render_sprite_line(0);
+
+        assert_eq!(ppu.frame[0], SHADES[1], "opaque pixel drawn");
+        assert_eq!(ppu.frame[1], SHADES[2], "transparent pixel left untouched");
+    }
+
+    #[test]
+    fn priority_bit_keeps_sprite_behind_non_zero_background() {
+        let mut ppu = PixelProcessor::default();
+        ppu.LCDC = Byte(0x93);
+        ppu.OBP0 = Byte(0xE4);
+        solid_tile(&mut ppu, 1);
+        place_sprite(&mut ppu, 0, 0, 0, 1, 0x80); // priority bit set
+
+        ppu.bg_line_ids[0] = 2; // background non-zero here
+        ppu.bg_line_ids[1] = 0; // background transparent here
+        ppu.frame[0] = SHADES[2];
+        ppu.render_sprite_line(0);
+
+        assert_eq!(ppu.frame[0], SHADES[2], "hidden behind opaque background");
+        assert_eq!(ppu.frame[1], SHADES[3], "shows through where background is 0");
+    }
+
+    #[test]
+    fn lower_x_sprite_wins() {
+        let mut ppu = PixelProcessor::default();
+        ppu.LCDC = Byte(0x93);
+        ppu.OBP0 = Byte(0xE4); // id 3 -> shade 3
+        ppu.OBP1 = Byte(0x24); // id 3 -> shade 0
+        solid_tile(&mut ppu, 1);
+        // Two overlapping sprites; the lower-X one (slot 1) must win.
+        place_sprite(&mut ppu, 0, 4, 0, 1, 0x10); // higher X, OBP1
+        place_sprite(&mut ppu, 1, 2, 0, 1, 0x00); // lower X, OBP0
+
+        ppu.render_sprite_line(0);
+
+        // Overlap column 4: slot 1 (OBP0 -> shade 3) is on top.
+        assert_eq!(ppu.frame[4], SHADES[3]);
     }
 }

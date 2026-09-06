@@ -432,6 +432,16 @@ impl Device {
         self.rom.get(offset).copied().unwrap_or(Byte(0xFF))
     }
 
+    /// Copy the 160-byte OAM block from the page `page << 8` into the PPU's OAM,
+    /// the effect of a write to the DMA register (`0xFF46`).
+    fn oam_dma(&mut self, page: Byte) {
+        let source = u16::from(page.0) << 8;
+        for i in 0..OAM_SIZE as u16 {
+            let byte = self.read(Address(source + i));
+            self.ppu.oam[i as usize] = byte;
+        }
+    }
+
     pub fn read(&mut self, address: Address) -> Byte {
         match address.0 {
             // Both ROM windows go through the MBC, which maps them onto the flat
@@ -510,6 +520,13 @@ impl Device {
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF0F => self.interrupt_flag = Byte(value.0 & 0x1F), // IF
             0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize] = value, // Audio
+            0xFF46 => {
+                // OAM DMA: copy 0xA0 bytes from XX00 into OAM. Real hardware
+                // takes 160 machine cycles and locks the bus; this does it at
+                // once, which is enough for sprites to appear.
+                self.oam_dma(value);
+                self.ppu.write_io(address, value);
+            }
             0xFF40..=0xFF55 => self.ppu.write_io(address, value), // PPU
             0xFF56 => self.infrared.write(value), // Infrared Com Port
             0xFF57..=0xFF6F => self.ppu.write_io(address, value), // PPU
@@ -772,6 +789,20 @@ mod tests {
         assert_eq!(dev.read(Address(0x0000)), Byte(0xAB), "ROM image untouched");
         // And it took effect: the window now maps bank 2.
         assert_eq!(dev.read(Address(0x4000)), Byte(0xAB));
+    }
+
+    #[test]
+    fn oam_dma_copies_a_page_into_oam() {
+        let mut dev = Device::new();
+        // Fill a WRAM page with a recognizable pattern, then DMA it in.
+        for i in 0..0xA0u16 {
+            dev.write(Address(0xC000 + i), Byte((i as u8) ^ 0x5A));
+        }
+        dev.write(Address(0xFF46), Byte(0xC0)); // source 0xC000
+
+        for i in 0..0xA0usize {
+            assert_eq!(dev.ppu.oam[i], Byte((i as u8) ^ 0x5A), "OAM byte {i}");
+        }
     }
 
     #[test]
