@@ -692,12 +692,11 @@ impl Device {
             }
             // 0x76
             HALT => {
-                // TODO: implement HALT
-                // STOP system clock
-                // Cancelled by interrupt or reset
-                // if interrupt master enable set PC is pushed to stack and jump to interrupt address
+                // Idle until an enabled interrupt is pending; step_cpu wakes us
+                // and, if IME is set, services it. The IME-disabled "HALT bug"
+                // (PC failing to advance) is not reproduced yet.
+                self.cpu.halted = true;
                 self.cpu.cost = 1;
-                unimplemented!();
             }
             // 0x77
             LD_aHL_A => {
@@ -1262,10 +1261,12 @@ impl Device {
             }
             // 0xD9
             RETI => {
-                // TODO: RETI instruction
-                unimplemented!("RETI instruction not implemented");
-                // toggle master interrupt enable flag
-                // load PC from SP? or other
+                // Return from an interrupt handler: pop PC and re-enable
+                // interrupts immediately (unlike EI, which is delayed one
+                // instruction on hardware - a nuance not modelled here).
+                self.cpu.pc = self.pop_address();
+                self.cpu.interupt_master_enable = true;
+                self.cpu.cost = 4;
             }
             // 0xDA
             JP_C_a16(addr) => {

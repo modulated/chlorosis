@@ -35,11 +35,14 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 3. CPU
 
-- [ ] **`step_cpu` runs 4× too fast.** Called every master tick, but `cost` is
-  in M-cycles (`NOP => cost = 1`). Gate to every 4th tick, or convert costs to
-  T-cycles. — `cpu/mod.rs`
-- [ ] **Implement `HALT`, `RETI`, `DAA`** — all `unimplemented!()`. HALT is in
-  essentially every main loop; RETI ends every interrupt handler. —
+- [x] **`step_cpu` ran 4× too fast.** It decremented `cost` (machine cycles)
+  every master tick. `Device::tick` now steps the CPU once per four ticks, and
+  a fetch/execute counts as the first machine cycle of the instruction's cost so
+  totals match the tables. — `cpu/mod.rs`, `device.rs`
+- [x] **`HALT` and `RETI`** implemented (they were `unimplemented!()`; HALT is in
+  every main loop, RETI ends every handler). HALT idles until an enabled
+  interrupt is pending; RETI pops PC and re-enables IME. **`DAA` and the
+  IME-disabled HALT bug are still open** (part of the original item 9). —
   `cpu/execute.rs`
 - [ ] **Opcode correctness pass.** e.g. `0x02 LD (BC),A` reads instead of
   writing. Wants a Blargg `cpu_instrs` harness, not eyeballing. —
@@ -47,19 +50,26 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 4. Interrupts
 
-- [ ] **IF (`0xFF0F`) and IE (`0xFFFF`) are the same field** — must be split.
-- [ ] **No dispatch exists.** Nothing checks IME/IF/IE, pushes PC, or vectors to
-  `0x40-0x60`. `EI`/`DI` set the flag and nothing reads it.
-- [ ] **Raise interrupts** — VBlank + STAT from the PPU, timer overflow from the
-  timer.
+- [x] **IF (`0xFF0F`) and IE (`0xFFFF`) split** into separate fields — they were
+  one, so each write clobbered the other. — `device.rs`
+- [x] **Dispatch implemented.** At each instruction boundary the highest-priority
+  pending+enabled interrupt (when IME is set) clears its IF bit, pushes PC, and
+  vectors to `0x40-0x60`; it also wakes HALT. — `device.rs::service_interrupt`
+- [x] **Interrupts raised.** Timer overflow reloads TMA and raises Timer; the PPU
+  raises VBlank on entering line 144 and STAT for the enabled LYC/mode sources.
+  — `timer.rs`, `ppu/mod.rs`
 
 ## 5. PPU — the actual rendering
 
-- [ ] **`step_draw` is `unimplemented!()`** — no pixels produced, `buffer` never
-  written. The single biggest item.
-- [ ] **No mode state machine.** Never transitions HBlank→OAM→Draw; sits in
-  HBlank counting LY forever. Needs the 80 / 172-289 / 87-204 dot schedule and
-  LY 0-153.
+- [ ] **No renderer yet.** `step_draw`'s `unimplemented!()` is gone (it would
+  have panicked the moment the mode machine reached Draw), but no pixels are
+  produced and `buffer` is still never written. The single biggest remaining
+  item: on entering HBlank render the scanline, on entering VBlank publish the
+  frame. — `ppu/mod.rs::on_mode_entry`
+- [x] **Mode state machine (timing).** LY now runs 0-153 and the mode cycles
+  OAM(80)→Draw(172)→HBlank per visible line, VBlank at 144, driven per dot. This
+  is what makes VBlank/STAT interrupts fire. Drawing (above) still to come; the
+  Draw duration is fixed at the 172-dot minimum. — `ppu/mod.rs::step`
 - [ ] **LCDC bit-7 write is inverted.** `0xFF40` masks bit 7 off the value then
   the `else` calls `lcd_enable()`. — `ppu/registers.rs`
 - [ ] **Tile-map area ranges disagree** — background returns VRAM-relative
@@ -101,6 +111,11 @@ long before the renderer is even reached. Suggested order is bottom of this file
 Cheap unblockers first, so progress is observable rather than panicking on the
 first audio write or a dark LCD:
 
-**5 (audio stub) → 18 (VRAM/OAM guards) → 20 (boot state)** ← done
-→ 11/12/13 (interrupts) → 8 (CPU timing) → 1/2/3 (ROM loading + addressing)
-→ 15 (PPU modes) → 14/19 (renderer + palette) → 21 (joypad).
+**5 (audio stub) → 18 (VRAM/OAM guards) → 20 (boot state) → 11/12/13
+(interrupts) → 8 (CPU timing) → 15 (PPU mode timing)** ← done
+→ 1/2/3 (ROM loading + addressing) → 14/19 (renderer + palette) → 21 (joypad).
+
+Next up: **1/2/3** (load the full ROM, size it from the header, fix the 16-bit
+address truncation) so a real cartridge's code and data are actually present,
+then **14/19** (the renderer) to finally draw something. HALT/RETI/DAA's
+remaining pieces and the joypad polarity fix can slot in alongside.

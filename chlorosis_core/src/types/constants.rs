@@ -60,5 +60,9 @@ bitflags::bitflags! {
     }
 }
 
+/// Handler addresses for each interrupt, indexed by bit position in the IF/IE
+/// registers (0 = VBlank .. 4 = Joypad). Lower bit == higher priority.
+pub const INTERRUPT_VECTORS: [u16; 5] = [0x0040, 0x0048, 0x0050, 0x0058, 0x0060];
+
 // Pixel Processing Unit Constants
 pub const TILE_SIZE: usize = 16;

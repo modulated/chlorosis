@@ -43,7 +43,14 @@ pub struct Device {
     wram: Vec<Byte>,
     eram: Vec<Byte>,
     hram: Vec<Byte>,
-    interrupt: Byte,
+    /// Interrupt Flag (`0xFF0F`): which interrupts are currently requested.
+    interrupt_flag: Byte,
+    /// Interrupt Enable (`0xFFFF`): which requested interrupts may be serviced.
+    /// These were previously one shared field, so IF and IE aliased each other.
+    interrupt_enable: Byte,
+    /// Which master tick of the current machine cycle we are on (0..4). The CPU
+    /// advances once every four ticks; the PPU and timer advance every tick.
+    mcycle_phase: u8,
     rom_bank: usize,
     wram_bank: Byte,
     infrared: Infrared,
@@ -92,7 +99,9 @@ impl Device {
             rom_bank: 1,
             wram_bank: Byte(1),
             hram: vec![Byte(0); HRAM_SIZE],
-            interrupt: Byte(0),
+            interrupt_flag: Byte(0),
+            interrupt_enable: Byte(0),
+            mcycle_phase: 0,
             rom_path: None,
             state: EmulatorState::Stopped,
         }
@@ -176,10 +185,54 @@ impl Device {
     /// Advance every component by `ticks` of the 4.19 MHz master clock.
     fn tick(&mut self, ticks: u32) {
         for _ in 0..ticks {
-            self.step_cpu();
-            self.ppu.step();
-            self.timer.tick();
+            // The PPU and timer run on the master clock, one step per tick.
+            let mut pending = self.ppu.step();
+            if self.timer.tick() {
+                pending |= Interrupts::Timer;
+            }
+            self.request_interrupts(pending);
+
+            // The CPU runs on the machine clock: one step every fourth tick.
+            self.mcycle_phase += 1;
+            if self.mcycle_phase == 4 {
+                self.mcycle_phase = 0;
+                self.step_cpu();
+            }
         }
+    }
+
+    /// Flag `ints` as requested, for the CPU to service when interrupts are
+    /// enabled.
+    const fn request_interrupts(&mut self, ints: Interrupts) {
+        self.interrupt_flag.0 |= ints.bits();
+    }
+
+    /// Service the highest-priority pending, enabled interrupt if IME is set,
+    /// and wake the CPU from HALT for any pending, enabled interrupt regardless
+    /// of IME. Returns `true` if an interrupt was dispatched.
+    pub(crate) fn service_interrupt(&mut self) -> bool {
+        let pending = self.interrupt_flag.0 & self.interrupt_enable.0 & 0x1F;
+        if pending == 0 {
+            return false;
+        }
+
+        // A pending, enabled interrupt ends HALT even when IME is clear; the CPU
+        // simply resumes without vectoring.
+        self.cpu.halted = false;
+
+        if !self.cpu.interupt_master_enable {
+            return false;
+        }
+
+        // The lowest set bit is the highest priority (VBlank first).
+        let index = pending.trailing_zeros() as usize;
+        self.interrupt_flag.0 &= !(1 << index);
+        self.cpu.interupt_master_enable = false;
+        self.push_address(self.cpu.pc);
+        self.cpu.pc = Address(INTERRUPT_VECTORS[index]);
+        // Dispatch takes five machine cycles; this call is the first.
+        self.cpu.cost = 4;
+        true
     }
 
     /// Hand the frontend a finished frame, if the PPU produced one.
@@ -357,7 +410,7 @@ impl Device {
             0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.read(address), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF0F => self.interrupt,     // Interrupt
+            0xFF0F => Byte(self.interrupt_flag.0 | 0xE0), // IF (top 3 bits read as 1)
             0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize], // Audio
             0xFF40..=0xFF55 => self.ppu.read_io(address), // PPU
             0xFF56 => self.infrared.read(), // Infrared Com Port
@@ -369,7 +422,7 @@ impl Device {
             0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)],
-            INTERRUPT_ENABLE => self.interrupt,
+            INTERRUPT_ENABLE => self.interrupt_enable,
         }
     }
 
@@ -398,7 +451,7 @@ impl Device {
             0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.write(address, value), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF0F => self.interrupt = value,   // Interrupt
+            0xFF0F => self.interrupt_flag = Byte(value.0 & 0x1F), // IF
             0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize] = value, // Audio
             0xFF40..=0xFF55 => self.ppu.write_io(address, value), // PPU
             0xFF56 => self.infrared.write(value), // Infrared Com Port
@@ -410,7 +463,7 @@ impl Device {
             0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)] = value,
-            INTERRUPT_ENABLE => self.interrupt = value,
+            INTERRUPT_ENABLE => self.interrupt_enable = value,
         }
     }
 
@@ -540,5 +593,94 @@ impl Pacer {
             fps: fps as f32,
             percent: (fps * FRAME_TIME.as_secs_f64() * 100.0) as f32,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Device;
+    use crate::{constants::Interrupts, Address, Byte};
+
+    #[test]
+    fn if_and_ie_are_independent_registers() {
+        // They used to be one field, so writing one clobbered the other.
+        let mut dev = Device::new();
+        dev.write(Address(0xFF0F), Byte(0x1F));
+        dev.write(Address(0xFFFF), Byte(0x00));
+
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x1F, 0x1F);
+        assert_eq!(dev.read(Address(0xFFFF)).0, 0x00);
+    }
+
+    #[test]
+    fn enabled_interrupt_is_dispatched_to_its_vector() {
+        let mut dev = Device::new();
+        dev.cpu.interupt_master_enable = true;
+        dev.write(Address(0xFFFF), Byte(0x01)); // enable VBlank
+        dev.request_interrupts(Interrupts::VBlank);
+
+        dev.step_cpu();
+
+        assert_eq!(dev.cpu.pc, Address(0x0040), "vectored to the VBlank handler");
+        assert_eq!(dev.cpu.sp, Address(0xFFFC), "return address pushed");
+        assert!(!dev.cpu.interupt_master_enable, "IME cleared on dispatch");
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x01, 0, "request acknowledged");
+    }
+
+    #[test]
+    fn highest_priority_interrupt_wins() {
+        let mut dev = Device::new();
+        dev.cpu.interupt_master_enable = true;
+        dev.write(Address(0xFFFF), Byte(0x1F)); // enable all
+        dev.request_interrupts(Interrupts::Timer | Interrupts::Joypad);
+
+        dev.step_cpu();
+
+        // Timer (bit 2 -> 0x50) outranks Joypad (bit 4 -> 0x60).
+        assert_eq!(dev.cpu.pc, Address(0x0050));
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x04, 0, "only Timer cleared");
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x10, 0x10, "Joypad still pending");
+    }
+
+    #[test]
+    fn interrupts_are_ignored_while_ime_is_clear() {
+        let mut dev = Device::new();
+        dev.write(Address(0xFFFF), Byte(0x01));
+        dev.request_interrupts(Interrupts::VBlank);
+
+        dev.step_cpu();
+
+        // No vectoring: the CPU just runs the next instruction normally, so the
+        // request stays pending and nothing was pushed.
+        assert_ne!(dev.cpu.pc, Address(0x0040), "must not vector without IME");
+        assert_eq!(dev.cpu.sp, Address(0xFFFE), "nothing pushed");
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x01, 0x01, "request still pending");
+    }
+
+    #[test]
+    fn halt_resumes_on_a_pending_interrupt_even_without_ime() {
+        let mut dev = Device::new();
+        dev.cpu.halted = true;
+        dev.write(Address(0xFFFF), Byte(0x01));
+        dev.request_interrupts(Interrupts::VBlank);
+
+        dev.step_cpu();
+
+        // HALT ends, but with IME clear the interrupt is not serviced: execution
+        // simply resumes, leaving the request pending.
+        assert!(!dev.cpu.halted, "HALT ends when an enabled interrupt is pending");
+        assert_ne!(dev.cpu.pc, Address(0x0040), "not vectored (IME clear)");
+        assert_eq!(dev.read(Address(0xFF0F)).0 & 0x01, 0x01, "request still pending");
+    }
+
+    #[test]
+    fn cpu_advances_one_machine_cycle_per_four_ticks() {
+        let mut dev = Device::new();
+        dev.write(Address(0x0100), Byte(0x00)); // NOP at the reset vector
+
+        // One NOP is one machine cycle: four master ticks execute exactly one.
+        dev.tick(4);
+
+        assert_eq!(dev.cpu.pc, Address(0x0101));
     }
 }

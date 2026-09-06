@@ -2,9 +2,13 @@ use crate::types::{Address, Byte};
 
 #[derive(Debug, Default)]
 pub struct Timer {
-    divider: Byte,
-    counter: Byte,
-    modulo: Byte,
+    /// 16-bit internal counter incremented every master tick; DIV is its high
+    /// byte, so DIV advances at 16384 Hz rather than the tick rate.
+    system_counter: u16,
+    /// Ticks accumulated toward the next TIMA increment.
+    tima_sub: u32,
+    counter: Byte, // TIMA
+    modulo: Byte,  // TMA
     enabled: bool,
     clock_speed: ClockSpeed,
 }
@@ -12,18 +16,34 @@ pub struct Timer {
 // TODO: change based on CGB double speed mode
 
 impl Timer {
-    pub fn tick(&mut self) {
-        // This function is called at CPU freq 4.19 MHz
+    /// Advance the timer one master tick. Returns `true` on the tick where TIMA
+    /// overflowed, which is when a Timer interrupt must be requested.
+    ///
+    /// Previously this incremented DIV and TIMA on every call regardless of the
+    /// enable bit or selected clock, and reloaded TIMA from DIV instead of the
+    /// modulo on overflow - so a running timer fired far too often. TIMA now
+    /// advances only when enabled, at its configured rate, and reloads from TMA.
+    pub const fn tick(&mut self) -> bool {
+        self.system_counter = self.system_counter.wrapping_add(1);
 
-        self.divider += 1;
+        if !self.enabled {
+            return false;
+        }
 
-        // incremented at clock_speed
-        // if overflow, set to modulo and request interrupt
+        self.tima_sub += 1;
+        if self.tima_sub < self.clock_speed.period() {
+            return false;
+        }
+        self.tima_sub = 0;
+
         match self.counter.0.checked_add(1) {
-            Some(v) => self.counter = Byte(v),
+            Some(v) => {
+                self.counter = Byte(v);
+                false
+            }
             None => {
-                self.counter = self.divider;
-                // TODO: call interrupt
+                self.counter = self.modulo;
+                true
             }
         }
     }
@@ -49,11 +69,12 @@ impl Timer {
     }
 
     pub const fn read_divider(&self) -> Byte {
-        self.divider
+        Byte((self.system_counter >> 8) as u8)
     }
 
     pub fn write_divider(&mut self, _: Byte) {
-        self.divider = Byte(0);
+        // Any write resets the whole internal counter, not just the DIV byte.
+        self.system_counter = 0;
     }
 
     pub const fn read_counter(&self) -> Byte {
@@ -107,4 +128,58 @@ enum ClockSpeed {
     C16,
     C64,
     C256,
+}
+
+impl ClockSpeed {
+    /// Master ticks between TIMA increments.
+    const fn period(&self) -> u32 {
+        match self {
+            Self::C1024 => 1024,
+            Self::C256 => 256,
+            Self::C64 => 64,
+            Self::C16 => 16,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Timer;
+    use crate::Byte;
+
+    #[test]
+    fn tima_overflow_reloads_modulo_and_signals() {
+        let mut timer = Timer::default();
+        timer.write_control(Byte(0b101)); // enabled, fastest clock (period 16)
+        timer.write_modulo(Byte(0xAB));
+        timer.write_counter(Byte(0xFF));
+
+        let mut fired = false;
+        for _ in 0..16 {
+            fired |= timer.tick();
+        }
+
+        assert!(fired, "overflow should be reported exactly once");
+        assert_eq!(timer.read_counter(), Byte(0xAB), "TIMA reloads from TMA");
+    }
+
+    #[test]
+    fn disabled_timer_never_fires() {
+        let mut timer = Timer::default();
+        timer.write_control(Byte(0b001)); // clock selected but disabled
+        timer.write_counter(Byte(0xFF));
+
+        assert!(!(0..10_000).any(|_| timer.tick()));
+    }
+
+    #[test]
+    fn div_advances_far_slower_than_the_tick_rate() {
+        let mut timer = Timer::default();
+        for _ in 0..255 {
+            timer.tick();
+        }
+        assert_eq!(timer.read_divider(), Byte(0));
+        timer.tick(); // 256th tick rolls the low byte into DIV
+        assert_eq!(timer.read_divider(), Byte(1));
+    }
 }

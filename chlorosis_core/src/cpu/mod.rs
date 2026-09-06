@@ -25,6 +25,8 @@ pub struct CentralProcessor {
     pub pc: Address,
     pub sp: Address,
     pub interupt_master_enable: bool,
+    /// Set by `HALT`; the CPU idles until an enabled interrupt is pending.
+    pub halted: bool,
     pub cost: u8,
 }
 
@@ -55,6 +57,7 @@ impl Default for CentralProcessor {
             sp: Address(0xFFFE),
             cost: 0,
             interupt_master_enable: false,
+            halted: false,
             // cycle_count: 0,
         }
     }
@@ -137,17 +140,36 @@ impl CentralProcessor {
 }
 
 impl Device {
+    /// Advance the CPU by one machine cycle (four master clock ticks).
+    ///
+    /// Instruction costs are counted in machine cycles, so this must be driven
+    /// once per machine cycle - see `Device::tick`, which calls it every fourth
+    /// tick. Driving it every tick, as an earlier version did, ran the CPU four
+    /// times too fast relative to the PPU.
     pub fn step_cpu(&mut self) {
-        // return if cycle timer not 0
+        // Still working through the current instruction's duration.
         if self.cpu.cost != 0 {
             self.cpu.cost -= 1;
             return;
         }
-        // fetch instruction
-        let op = self.fetch_instruction();
 
-        // execute instruction
+        // At an instruction boundary. A pending interrupt is serviced before
+        // the next fetch, and also wakes the CPU from HALT.
+        if self.service_interrupt() {
+            return;
+        }
+
+        // Halted with nothing pending: idle this cycle.
+        if self.cpu.halted {
+            return;
+        }
+
+        let op = self.fetch_instruction();
         self.execute(op);
+
+        // `execute` records the instruction's full duration in machine cycles;
+        // this fetch/execute counts as the first of them.
+        self.cpu.cost = self.cpu.cost.saturating_sub(1);
     }
 
     pub fn consume_byte(&mut self) -> Byte {
@@ -170,7 +192,7 @@ impl Device {
         Address(((b2.0 as u16) << 8) + b1.0 as u16)
     }
 
-    fn push_address(&mut self, addr: Address) {
+    pub(crate) fn push_address(&mut self, addr: Address) {
         let (h, l) = addr.split();
         self.cpu.sp -= 1;
         self.write(self.cpu.sp, h);
