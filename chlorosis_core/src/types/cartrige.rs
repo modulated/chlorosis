@@ -51,6 +51,11 @@ impl CartrigeHeader {
     pub const fn rom_size(&self) -> u64 {
         self.rom_size
     }
+
+    /// Total external-RAM size in bytes as declared by the header.
+    pub const fn ram_size(&self) -> u32 {
+        self.ram_size
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion

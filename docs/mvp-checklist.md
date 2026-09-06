@@ -20,12 +20,13 @@ long before the renderer is even reached. Suggested order is bottom of this file
   computes `bank * 0x4000 + (addr - 0x4000)` in `usize` via `read_rom`, so it
   reaches past 64 KB; the old `Address` (u16) math wrapped. Out-of-range offsets
   return open-bus `0xFF`. — `device.rs::read`
-- [ ] **Wire `mod mbc` into `read`/`write`.** ROM-region writes are now dropped
-  (ROM is read-only) instead of corrupting the image, but they still don't drive
-  the MBC, so `rom_bank` never changes and only bank 1 is reachable at
-  `0x4000-0x7FFF`. 32 KB no-MBC ROMs work fully; banked ROMs run only their
-  bank-0 code until this lands. `set_cartrige_bank` still has no callers. —
-  `mbc/`, `device.rs::write`
+- [x] **MBC wired into `read`/`write`.** A new `mbc::Mbc` (ROM-only, MBC1, MBC3,
+  MBC5) maps the switchable ROM/RAM windows onto the flat image and absorbs the
+  bank-select writes; `Device` builds it from the header's cartridge-type byte
+  and sizes external RAM from the header. Banked ROMs larger than 32 KB now run
+  in full. The old broken, unwired `mbc1/2/3/5.rs` are replaced. **MBC2 and
+  MBC3's RTC are not modelled** (MBC2 falls back to MBC1 behaviour). — `mbc/mod.rs`,
+  `device.rs`
 
 ## 2. Stop the memory map killing the core thread
 
@@ -101,9 +102,12 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 7. Input
 
-- [ ] **Joypad polarity inverted.** Hardware is active-low; unselected reads
-  return `0x0F`. Currently pressed = 1 / select = bit set, so games read every
-  button as held. — `joypad.rs`
+- [x] **Joypad polarity fixed.** Reads are now active-low - a bit is 0 when
+  pressed or its group selected, 1 otherwise, with unused bits 6-7 high and the
+  idle lower nibble `0xF`. It used to report pressed = 1 and treat a set select
+  bit as selected, so games saw every button held. **Joypad interrupt on
+  key-down is still not raised** (fine for the many games that poll). —
+  `joypad.rs`
 
 ## 8. Verification
 
@@ -122,15 +126,16 @@ first audio write or a dark LCD:
 
 **5 (audio stub) → 18 (VRAM/OAM guards) → 20 (boot state) → 11/12/13
 (interrupts) → 8 (CPU timing) → 15 (PPU mode timing) → 1/2/3 (ROM loading +
-addressing) → 14/19 (DMG background renderer) + 16 (LCDC write)** ← done
+addressing) → 14/19 (DMG background renderer) + 16 (LCDC write) → 21 (joypad) +
+4 (MBC banking)** ← done
 
-A 32 KB no-MBC DMG ROM can now boot and put its background on screen. The MVP
-loop is essentially closed; what remains is breadth and accuracy:
+A ROM can now boot, display its background, and take input, with MBC1/3/5 games
+running past 32 KB. The MVP path is complete; what remains is breadth and
+accuracy:
 
-- **21 (joypad polarity)** — small, and needed before a game is actually
-  *playable* rather than just displaying.
-- **4 (MBC banking)** — to run ROMs larger than 32 KB in full.
 - **Renderer follow-ons** — sprites (needs OAM DMA at `0xFF46`), the window
   (and the item-17 tile-map range fix), and CGB `bcram` colour.
 - **9 (DAA, HALT bug)** and the **opcode correctness pass** (item 10), best
   driven by a Blargg `cpu_instrs` harness (item 22).
+- **Accuracy leftovers** — the joypad interrupt, MBC2 / MBC3-RTC, and the
+  remaining `panic!`ing memory holes (echo RAM, `0xFF50`, item-2 group).

@@ -8,7 +8,9 @@ use std::{
 
 use super::{Address, Byte};
 
-use crate::{constants::*, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Timer};
+use crate::{
+    constants::*, mbc::Mbc, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Timer,
+};
 
 use super::{types::CartrigeHeader, AudioProcessor, CentralProcessor, PixelProcessor};
 
@@ -22,6 +24,9 @@ const FRAME_TIME: Duration = Duration::from_nanos(16_742_706);
 const AUDIO_REG_START: u16 = 0xFF10;
 /// Number of audio registers, `0xFF10..=0xFF3F` (control regs plus wave RAM).
 const AUDIO_REG_COUNT: usize = 0x30;
+
+/// External-RAM bank size (8 KB), used to size `eram` and count RAM banks.
+const RAM_BANK_SIZE: usize = 0x2000;
 
 /// How far behind real time the emulator may fall before it stops trying to
 /// catch up. Without this a long host stall (a dragged window, a swapped out
@@ -51,7 +56,9 @@ pub struct Device {
     /// Which master tick of the current machine cycle we are on (0..4). The CPU
     /// advances once every four ticks; the PPU and timer advance every tick.
     mcycle_phase: u8,
-    rom_bank: usize,
+    /// Cartridge memory-bank controller: maps the ROM/RAM windows onto `rom`
+    /// and `eram`, and absorbs the bank-select writes into the ROM range.
+    mbc: Mbc,
     wram_bank: Byte,
     infrared: Infrared,
     timer: Timer,
@@ -93,10 +100,11 @@ impl Device {
             infrared: Infrared::default(),
             timer: Timer::default(),
             audio_regs: [Byte(0); AUDIO_REG_COUNT],
-            rom: vec![Byte(0); ROM_BANK_SIZE * 2], // TODO: need better way of determing ROM vec size
+            rom: vec![Byte(0); ROM_BANK_SIZE * 2], // resized to the cartridge on load
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
-            rom_bank: 1,
+            // ROM-only default; replaced from the header when a cartridge loads.
+            mbc: Mbc::new(0x00, 2, ERAM_SIZE / RAM_BANK_SIZE),
             wram_bank: Byte(1),
             hram: vec![Byte(0); HRAM_SIZE],
             interrupt_flag: Byte(0),
@@ -394,6 +402,18 @@ impl Device {
             .next_multiple_of(ROM_BANK_SIZE);
         self.rom.resize(sized, Byte(0xFF));
 
+        // Size external RAM from the header and build the controller named by
+        // the cartridge-type byte, so the switchable ROM/RAM windows map onto
+        // the real image.
+        let ram_size = (header.ram_size() as usize).next_multiple_of(RAM_BANK_SIZE);
+        self.eram = vec![Byte(0); ram_size];
+        let cartridge_type = self.rom[0x0147].0;
+        self.mbc = Mbc::new(
+            cartridge_type,
+            self.rom.len() / ROM_BANK_SIZE,
+            self.eram.len() / RAM_BANK_SIZE,
+        );
+
         self.cartrige = Some(header);
         self.rom_path = Some(path.to_path_buf());
         self.dump_cartrige_header();
@@ -414,18 +434,18 @@ impl Device {
 
     pub fn read(&mut self, address: Address) -> Byte {
         match address.0 {
-            // Bank 0 is fixed at the start of the ROM.
-            ROM_0_START..=ROM_0_END => self.read_rom(address.0 as usize),
-            // The switchable bank. The physical offset is computed in `usize`:
-            // `Address` is a `u16`, so the old `address + ROM_1_START * (bank-1)`
-            // wrapped for any bank past the first 64 KB of ROM.
-            ROM_1_START..=ROM_1_END => {
-                let offset =
-                    self.rom_bank * ROM_BANK_SIZE + (address.0 as usize - ROM_1_START as usize);
-                self.read_rom(offset)
-            }
+            // Both ROM windows go through the MBC, which maps them onto the flat
+            // ROM image in `usize` (so banks past 64 KB no longer wrap) and
+            // selects the switchable bank.
+            ROM_0_START..=ROM_1_END => self.read_rom(self.mbc.rom_offset(address.0)),
             VRAM_START..=VRAM_END => self.ppu.read_vram(address),
-            ERAM_START..=ERAM_END => self.eram[address - Address(ERAM_START)], // External ram
+            // External cartridge RAM, if the MBC has it mapped and enabled;
+            // otherwise the bus floats to 0xFF.
+            ERAM_START..=ERAM_END => self
+                .mbc
+                .ram_offset(address.0)
+                .and_then(|o| self.eram.get(o).copied())
+                .unwrap_or(Byte(0xFF)),
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)],
             WRAM_1_START..=WRAM_1_END => {
                 self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
@@ -459,16 +479,20 @@ impl Device {
 
     pub fn write(&mut self, address: Address, value: Byte) {
         match address.0 {
-            // Writes into the ROM range are never stored - ROM is read-only.
-            // On a banked cartridge they set the MBC's bank/control registers;
-            // wiring that up (and so making `rom_bank` change) is item 4. Until
-            // then they are dropped rather than corrupting the ROM image, which
-            // is what `self.rom[address] = value` used to do.
-            ROM_0_START..=ROM_1_END => {}
+            // Writes into the ROM range never store into ROM; they program the
+            // MBC's bank-select and control registers.
+            ROM_0_START..=ROM_1_END => self.mbc.write_control(address.0, value.0),
             VRAM_START..=VRAM_END => {
                 self.ppu.write_vram(address, value);
             }
-            ERAM_START..=ERAM_END => self.eram[address - Address(ERAM_START)] = value, // External ram
+            // External cartridge RAM, if mapped and enabled; dropped otherwise.
+            ERAM_START..=ERAM_END => {
+                if let Some(offset) = self.mbc.ram_offset(address.0) {
+                    if let Some(cell) = self.eram.get_mut(offset) {
+                        *cell = value;
+                    }
+                }
+            }
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)] = value,
             WRAM_1_START..=WRAM_1_END => {
                 self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
@@ -500,9 +524,6 @@ impl Device {
         }
     }
 
-    pub fn set_cartrige_bank(&mut self, value: usize) {
-        self.rom_bank = value;
-    }
 
     pub fn get_header(&self) -> &[Byte] {
         &self.rom[0x100..=0x14F]
@@ -631,9 +652,10 @@ impl Pacer {
 
 #[cfg(test)]
 mod tests {
-    use super::Device;
+    use super::{Device, RAM_BANK_SIZE};
     use crate::{
         constants::{Interrupts, ROM_BANK_SIZE},
+        mbc::Mbc,
         Address, Byte,
     };
 
@@ -717,34 +739,56 @@ mod tests {
         dev.rom = (0..4 * ROM_BANK_SIZE)
             .map(|i| Byte((i / ROM_BANK_SIZE) as u8))
             .collect();
+        dev.mbc = Mbc::new(0x01, 4, 0); // MBC1
 
         // Bank 0 is fixed at 0x0000-0x3FFF.
         assert_eq!(dev.read(Address(0x0000)), Byte(0));
         assert_eq!(dev.read(Address(0x3FFF)), Byte(0));
 
-        // 0x4000-0x7FFF follows the selected bank. Bank 3 sits at physical
-        // offset 0xC000, which overflowed the old u16 arithmetic to 0x0000.
-        dev.rom_bank = 1;
-        assert_eq!(dev.read(Address(0x4000)), Byte(1));
-        dev.rom_bank = 3;
+        // Selecting bank 3 puts physical offset 0xC000 in the window, which
+        // overflowed the old u16 arithmetic to 0x0000.
+        dev.write(Address(0x2000), Byte(3));
         assert_eq!(dev.read(Address(0x4000)), Byte(3));
         assert_eq!(dev.read(Address(0x7FFF)), Byte(3));
     }
 
     #[test]
     fn reads_past_the_rom_return_open_bus() {
+        // A ROM shorter than an addressed offset (e.g. padding past a small
+        // image) reads back as open bus rather than panicking.
         let mut dev = Device::new();
-        dev.rom = vec![Byte(0x11); ROM_BANK_SIZE * 2]; // 32 KB, banks 0 and 1 only
-        dev.rom_bank = 7; // a bank this ROM does not have
-        assert_eq!(dev.read(Address(0x4000)), Byte(0xFF));
+        dev.rom = vec![Byte(0x11); 4];
+        assert_eq!(dev.read_rom(100), Byte(0xFF));
     }
 
     #[test]
-    fn rom_writes_do_not_corrupt_the_image() {
+    fn rom_writes_program_the_mbc_and_never_touch_the_image() {
         let mut dev = Device::new();
-        dev.rom = vec![Byte(0xAB); ROM_BANK_SIZE * 2];
-        dev.write(Address(0x2000), Byte(0x00)); // would be an MBC bank select
-        assert_eq!(dev.read(Address(0x2000)), Byte(0xAB), "ROM stayed read-only");
+        dev.rom = vec![Byte(0xAB); 4 * ROM_BANK_SIZE];
+        dev.mbc = Mbc::new(0x01, 4, 0);
+
+        // A write into the ROM range is a bank select, not a store.
+        dev.write(Address(0x2000), Byte(2));
+        assert_eq!(dev.read(Address(0x0000)), Byte(0xAB), "ROM image untouched");
+        // And it took effect: the window now maps bank 2.
+        assert_eq!(dev.read(Address(0x4000)), Byte(0xAB));
+    }
+
+    #[test]
+    fn external_ram_round_trips_only_while_enabled() {
+        let mut dev = Device::new();
+        dev.rom = vec![Byte(0); 4 * ROM_BANK_SIZE];
+        dev.eram = vec![Byte(0); RAM_BANK_SIZE];
+        dev.mbc = Mbc::new(0x03, 4, 1); // MBC1 + RAM
+
+        // Disabled by default: writes drop, reads float high.
+        dev.write(Address(0xA000), Byte(0x42));
+        assert_eq!(dev.read(Address(0xA000)), Byte(0xFF));
+
+        // Enable RAM (0x0A into 0x0000-0x1FFF), then it round-trips.
+        dev.write(Address(0x0000), Byte(0x0A));
+        dev.write(Address(0xA000), Byte(0x42));
+        assert_eq!(dev.read(Address(0xA000)), Byte(0x42));
     }
 
     #[test]
