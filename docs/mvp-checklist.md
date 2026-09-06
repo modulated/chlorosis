@@ -65,25 +65,30 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 5. PPU — the actual rendering
 
-- [ ] **No renderer yet.** `step_draw`'s `unimplemented!()` is gone (it would
-  have panicked the moment the mode machine reached Draw), but no pixels are
-  produced and `buffer` is still never written. The single biggest remaining
-  item: on entering HBlank render the scanline, on entering VBlank publish the
-  frame. — `ppu/mod.rs::on_mode_entry`
-- [x] **Mode state machine (timing).** LY now runs 0-153 and the mode cycles
+- [x] **Background renderer.** On entering HBlank the scanline is drawn into a
+  working frame; on entering VBlank the frame is published to the frontend.
+  Background only for now — no window, no sprites, VRAM bank 0 — using SCX/SCY
+  scroll, both tile-addressing modes, and honouring BG-enable (LCDC bit 0).
+  **Sprites, the window, and the cycle-accurate pixel FIFO are the follow-ons.**
+  — `ppu/mod.rs::render_background_line`
+- [x] **Mode state machine (timing).** LY runs 0-153 and the mode cycles
   OAM(80)→Draw(172)→HBlank per visible line, VBlank at 144, driven per dot. This
-  is what makes VBlank/STAT interrupts fire. Drawing (above) still to come; the
-  Draw duration is fixed at the 172-dot minimum. — `ppu/mod.rs::step`
-- [ ] **LCDC bit-7 write is inverted.** `0xFF40` masks bit 7 off the value then
-  the `else` calls `lcd_enable()`. — `ppu/registers.rs`
+  is what makes VBlank/STAT interrupts fire and drives the renderer. The Draw
+  duration is fixed at the 172-dot minimum. — `ppu/mod.rs::step`
+- [x] **LCDC bit-7 write inversion fixed.** `0xFF40` now stores the value
+  directly; it used to mask bit 7 off and reconstruct it from an inverted
+  condition, so clearing bit 7 outside VBlank turned the LCD on. —
+  `ppu/registers.rs`
 - [ ] **Tile-map area ranges disagree** — background returns VRAM-relative
-  `0x1C00..`, window returns absolute `0x9C00..`. — `ppu/registers.rs`
+  `0x1C00..` (which the renderer uses), window returns absolute `0x9C00..`. Fix
+  when the window is rendered. — `ppu/registers.rs`
 - [x] **VRAM/OAM guards inverted and fatal.** `read_vram` panicked when the LCD
   was *enabled*; writes panicked outside HBlank/VBlank. Now keyed on the correct
   inaccessible modes (Draw for VRAM; OAM+Draw for OAM) and non-fatal: blocked
   reads return `0xFF`, blocked writes are ignored. — `ppu/mod.rs`
-- [ ] **Pick a pixel path.** DMG (`BGP` + 4 greys) is far less work than CGB
-  (`bcram`/`ocram`, BGR555). Convert to minifb's `0x00RRGGBB`.
+- [x] **Pixel path (DMG).** The renderer maps BGP through a 4-shade greyscale
+  ramp to minifb's `0x00RRGGBB`. CGB `bcram`/`ocram` BGR555 colour is a
+  follow-on. — `ppu/mod.rs`
 
 ## 6. Boot state
 
@@ -117,12 +122,15 @@ first audio write or a dark LCD:
 
 **5 (audio stub) → 18 (VRAM/OAM guards) → 20 (boot state) → 11/12/13
 (interrupts) → 8 (CPU timing) → 15 (PPU mode timing) → 1/2/3 (ROM loading +
-addressing)** ← done
-→ 14/19 (renderer + palette) → 4 (MBC banking) → 21 (joypad).
+addressing) → 14/19 (DMG background renderer) + 16 (LCDC write)** ← done
 
-Next up: **14/19** — the renderer. Everything feeding it is now in place: a real
-ROM is fully loaded and correctly addressed, the CPU runs at the right rate,
-and the PPU walks its modes and raises VBlank, so `on_mode_entry` just needs to
-render the scanline on HBlank and publish the frame on VBlank. After that,
-**item 4** (MBC bank switching) to run ROMs larger than 32 KB in full, plus the
-leftover joypad polarity fix (21) and HALT-bug/DAA pieces (9).
+A 32 KB no-MBC DMG ROM can now boot and put its background on screen. The MVP
+loop is essentially closed; what remains is breadth and accuracy:
+
+- **21 (joypad polarity)** — small, and needed before a game is actually
+  *playable* rather than just displaying.
+- **4 (MBC banking)** — to run ROMs larger than 32 KB in full.
+- **Renderer follow-ons** — sprites (needs OAM DMA at `0xFF46`), the window
+  (and the item-17 tile-map range fix), and CGB `bcram` colour.
+- **9 (DAA, HALT bug)** and the **opcode correctness pass** (item 10), best
+  driven by a Blargg `cpu_instrs` harness (item 22).

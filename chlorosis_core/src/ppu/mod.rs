@@ -8,8 +8,36 @@ use self::{
     registers::{StatusMode, TileAddressingMode},
     tile::Tile,
 };
-use crate::{constants::*, framebuffer::FRAME_LEN, Address, Byte};
+use crate::{
+    constants::*,
+    framebuffer::{FRAME_LEN, SCREEN_HEIGHT, SCREEN_WIDTH},
+    Address, Byte,
+};
 use std::collections::VecDeque;
+
+/// DMG background shades, darkest last, as `0x00RRGGBB`. The four BGP palette
+/// entries index into this; a colour renderer (CGB `bcram`) is a later step.
+const SHADES: [u32; 4] = [0x00FF_FFFF, 0x00AA_AAAA, 0x0055_5555, 0x0000_0000];
+
+/// Bytes per tile row (two bitplanes) and rows per tile.
+const TILE_ROW_BYTES: usize = 2;
+const TILE_HEIGHT: usize = 8;
+const TILE_WIDTH: usize = 8;
+/// Tiles per row in a 32x32 background map.
+const MAP_WIDTH: usize = 32;
+
+/// VRAM byte offset (bank 0) of a background tile's pixel data.
+///
+/// Unsigned addressing (LCDC bit 4 set) counts tiles up from 0x8000; signed
+/// addressing counts from 0x9000 with the tile number taken as `i8`, so numbers
+/// 0x80..0xFF address the block just below it.
+const fn tile_data_offset(tile_number: u8, unsigned: bool) -> usize {
+    if unsigned {
+        tile_number as usize * TILE_SIZE
+    } else {
+        (0x1000 + (tile_number as i8 as isize) * TILE_SIZE as isize) as usize
+    }
+}
 
 /// Dots (master ticks) per scanline.
 const DOTS_PER_LINE: u32 = 456;
@@ -26,7 +54,11 @@ const LINES_PER_FRAME: u8 = 154;
 #[derive(Debug)]
 #[allow(non_snake_case)]
 pub struct PixelProcessor {
+    /// Frame handed to the frontend once complete; `None` between frames.
     buffer: Option<[u32; FRAME_LEN]>,
+    /// Frame being drawn, one scanline at a time during HBlank. Copied into
+    /// `buffer` when the frame finishes at the start of VBlank.
+    frame: [u32; FRAME_LEN],
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
     pub oam: [Byte; OAM_SIZE],
@@ -66,6 +98,7 @@ impl Default for PixelProcessor {
     fn default() -> Self {
         Self {
             buffer: None,
+            frame: [0; FRAME_LEN],
             vram: [Byte(0); VRAM_SIZE],
             vram_bank: Default::default(),
             oam: [Byte(0); OAM_SIZE],
@@ -115,12 +148,11 @@ impl PixelProcessor {
     /// Advance the PPU one dot (one master tick) and return any interrupts this
     /// dot raised.
     ///
-    /// This drives the timing state machine only - the position of `LY`, the
-    /// STAT mode, LY==LYC coincidence, and the VBlank/STAT interrupts that games
-    /// wait on. It does not yet draw pixels: on entering HBlank a scanline would
-    /// be rendered, and on entering VBlank the finished frame published, but
-    /// that (and the pixel FIFO) is the renderer's job and still to come, so no
-    /// frame buffer is produced here.
+    /// This drives the timing state machine - the position of `LY`, the STAT
+    /// mode, LY==LYC coincidence, and the VBlank/STAT interrupts games wait on -
+    /// and, through [`Self::on_mode_entry`], renders each background scanline on
+    /// entering HBlank and publishes the frame on entering VBlank. Sprites, the
+    /// window, and the cycle-accurate pixel FIFO are still to come.
     pub fn step(&mut self) -> Interrupts {
         // With the LCD off the PPU is idle: LY reads 0, mode reads 0, and
         // nothing is raised. This also keeps it out of `Draw`, where VRAM would
@@ -184,9 +216,12 @@ impl PixelProcessor {
                     requested |= Interrupts::LCD;
                 }
             }
-            // Item 14: a scanline is rendered into the frame buffer here.
             StatusMode::Draw => {}
             StatusMode::HBlank => {
+                // The line just finished pixel transfer; draw it now. Rendering
+                // per scanline (rather than once per frame) captures mid-frame
+                // scroll changes, which many games rely on.
+                self.render_background_line(self.LY.0);
                 if self.STAT.is_bit_set(3) {
                     requested |= Interrupts::LCD;
                 }
@@ -196,10 +231,63 @@ impl PixelProcessor {
                 if self.STAT.is_bit_set(4) {
                     requested |= Interrupts::LCD;
                 }
-                // Item 14: the completed frame is published here.
+                // The frame is complete; hand it to the frontend.
+                self.buffer = Some(self.frame);
             }
         }
         requested
+    }
+
+    /// Render one background scanline (`ly`, 0..144) into the working frame.
+    ///
+    /// DMG background only: no window, no sprites, VRAM bank 0, and the BGP
+    /// greyscale palette. The line maps into the 256x256 tiled background
+    /// through SCX/SCY, wrapping at the edges. With the background disabled
+    /// (LCDC bit 0) the line is blanked, as on DMG.
+    fn render_background_line(&mut self, ly: u8) {
+        let row = ly as usize;
+        if row >= SCREEN_HEIGHT {
+            return;
+        }
+        let line_start = row * SCREEN_WIDTH;
+
+        if !self.is_win_bg_priority() {
+            let blank = SHADES[0];
+            for pixel in &mut self.frame[line_start..line_start + SCREEN_WIDTH] {
+                *pixel = blank;
+            }
+            return;
+        }
+
+        let map_base = *self.read_background_tile_map_area().start() as usize;
+        let unsigned = matches!(self.read_tile_addressing_mode(), TileAddressingMode::Unsigned);
+
+        let bg_y = ly.wrapping_add(self.SCY.0) as usize;
+        let tile_row = bg_y / TILE_HEIGHT;
+        let row_in_tile = bg_y % TILE_HEIGHT;
+
+        for screen_x in 0..SCREEN_WIDTH {
+            let bg_x = (screen_x as u8).wrapping_add(self.SCX.0) as usize;
+            let tile_col = bg_x / TILE_WIDTH;
+            let col_in_tile = bg_x % TILE_WIDTH;
+
+            let tile_number = self.vram[map_base + tile_row * MAP_WIDTH + tile_col].0;
+            let plane = tile_data_offset(tile_number, unsigned) + row_in_tile * TILE_ROW_BYTES;
+            let low = self.vram[plane].0;
+            let high = self.vram[plane + 1].0;
+
+            // Pixel 0 of the row is the most significant bit of each plane.
+            let bit = 7 - col_in_tile;
+            let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+
+            self.frame[line_start + screen_x] = self.bg_shade(color_id);
+        }
+    }
+
+    /// Map a 2-bit background colour id through BGP to an `0x00RRGGBB` shade.
+    const fn bg_shade(&self, color_id: u8) -> u32 {
+        let shade = (self.BGP.0 >> (color_id * 2)) & 0b11;
+        SHADES[shade as usize]
     }
 
     /// Whether the CPU can currently reach VRAM.
@@ -318,8 +406,8 @@ impl PixelProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::{registers::StatusMode, PixelProcessor};
-    use crate::{Address, Byte};
+    use super::{registers::StatusMode, PixelProcessor, SHADES};
+    use crate::{constants::TILE_SIZE, Address, Byte};
 
     const VRAM_ADDR: Address = Address(0x8000);
     const OAM_ADDR: Address = Address(0xFE00);
@@ -365,5 +453,61 @@ mod tests {
 
         ppu.write_stat_mode(StatusMode::HBlank);
         assert_eq!(ppu.read_oam(OAM_ADDR), Byte(0x24));
+    }
+
+    #[test]
+    fn background_row_is_rendered_through_the_palette() {
+        let mut ppu = PixelProcessor::default(); // LCDC 0x91: LCD+BG on, unsigned
+        ppu.BGP = Byte(0xE4); // identity mapping: id N -> shade N
+
+        // Tile 1, row 0: low plane all set, high plane clear -> every pixel id 1.
+        ppu.vram[TILE_SIZE] = Byte(0xFF);
+        ppu.vram[TILE_SIZE + 1] = Byte(0x00);
+        // Background map base is 0x1800 (LCDC bit 3 clear); entry (0,0) -> tile 1.
+        ppu.vram[0x1800] = Byte(1);
+
+        ppu.render_background_line(0);
+
+        for (x, pixel) in ppu.frame[0..8].iter().enumerate() {
+            assert_eq!(*pixel, SHADES[1], "pixel {x} of tile 1");
+        }
+        // The next tile-map entry is still 0 -> tile 0 (blank) -> colour id 0.
+        assert_eq!(ppu.frame[8], SHADES[0]);
+    }
+
+    #[test]
+    fn scy_selects_the_tile_row() {
+        let mut ppu = PixelProcessor::default();
+        ppu.BGP = Byte(0xE4);
+        ppu.SCY = Byte(8); // shift the viewport down one tile
+
+        // Tile 1, row 0 -> id 1. With SCY=8, screen line 0 reads background line
+        // 8, which is row 0 of the tile in map row 1.
+        ppu.vram[TILE_SIZE] = Byte(0xFF);
+        ppu.vram[0x1800 + 32] = Byte(1); // map row 1, column 0 -> tile 1
+
+        ppu.render_background_line(0);
+        assert_eq!(ppu.frame[0], SHADES[1]);
+    }
+
+    #[test]
+    fn disabled_background_blanks_the_line() {
+        let mut ppu = PixelProcessor::default();
+        ppu.LCDC = Byte(0x90); // LCD on, but BG off (bit 0 clear)
+        ppu.frame[0] = SHADES[3];
+
+        ppu.render_background_line(0);
+
+        assert_eq!(ppu.frame[0], SHADES[0], "background off blanks to shade 0");
+    }
+
+    #[test]
+    fn a_full_frame_is_published_at_vblank() {
+        let mut ppu = PixelProcessor::default();
+        // Run a whole frame; the buffer is handed over on entering VBlank.
+        for _ in 0..crate::TICKS_PER_FRAME {
+            ppu.step();
+        }
+        assert!(ppu.take_frame().is_some(), "a frame should be ready");
     }
 }

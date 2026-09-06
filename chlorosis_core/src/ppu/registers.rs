@@ -30,14 +30,11 @@ impl PixelProcessor {
     }
     pub fn write_io(&mut self, address: Address, value: Byte) {
         match address.0 {
-            0xFF40 => {
-                self.LCDC = value & 0b01111111;
-                if !value.is_bit_set(7) && self.read_stat_mode() == StatusMode::VBlank {
-                    self.lcd_disable();
-                } else {
-                    self.lcd_enable();
-                }
-            }
+            // LCDC is fully readable and writable; bit 7 is the LCD enable. The
+            // old code masked bit 7 off the stored value and then reconstructed
+            // it from an inverted condition, so a write clearing bit 7 outside
+            // VBlank actually turned the LCD *on*.
+            0xFF40 => self.LCDC = value,
             0xFF41 => {
                 self.STAT = value & 0b0111_1100;
             }
@@ -82,14 +79,6 @@ impl PixelProcessor {
 
     pub const fn read_lcdc_enabled(&self) -> bool {
         self.LCDC.is_bit_set(7)
-    }
-
-    fn lcd_disable(&mut self) {
-        self.LCDC.write_bit(7, false);
-    }
-
-    fn lcd_enable(&mut self) {
-        self.LCDC.write_bit(7, true);
     }
 
     pub const fn read_window_tile_map_area(&self) -> RangeInclusive<u16> {
