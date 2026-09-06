@@ -271,7 +271,10 @@ mod test {
         let mut cpu = CentralProcessor::new();
         cpu.check_half_carry_sub_byte(Byte(0x01), Byte(0x00));
         assert!(!cpu.h_flag);
-        cpu.check_half_carry_sub_byte(Byte(0x02), Byte(0x10));
+        // 0x10 - 0x01: low nibble 0 < 1, so a half-borrow occurs. (The previous
+        // 0x02 - 0x10 case asserted a borrow, but 0x10's low nibble is 0, so
+        // there is none - the assertion was wrong, not the implementation.)
+        cpu.check_half_carry_sub_byte(Byte(0x10), Byte(0x01));
         assert!(cpu.h_flag);
         cpu.check_half_carry_sub_byte(Byte(0x08), Byte(0x01));
         assert!(!cpu.h_flag);

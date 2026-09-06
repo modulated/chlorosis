@@ -38,7 +38,10 @@ impl Byte {
     pub const ONE: Self = Self(1);
 
     pub const fn to_signed(self) -> SignedByte {
-        SignedByte(-((!self.0.wrapping_add(1)) as i8))
+        // The byte reinterpreted as two's-complement, which is exactly an `i8`
+        // cast. The previous bit-twiddling was wrong for every input (e.g. 0xFB
+        // gave -3 instead of -5, 0x00 gave 2), corrupting every relative jump.
+        SignedByte(self.0 as i8)
     }
 }
 
@@ -66,7 +69,7 @@ impl Add<Self> for Byte {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
+        Self(self.0.wrapping_add(rhs.0))
     }
 }
 
@@ -74,7 +77,7 @@ impl Sub<Self> for Byte {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
+        Self(self.0.wrapping_sub(rhs.0))
     }
 }
 
@@ -116,13 +119,13 @@ impl std::ops::AddAssign<i32> for Byte {
 
 impl std::ops::SubAssign<u8> for Byte {
     fn sub_assign(&mut self, rhs: u8) {
-        self.0 = self.0 - rhs;
+        self.0 = self.0.wrapping_sub(rhs);
     }
 }
 
 impl std::ops::SubAssign<i32> for Byte {
     fn sub_assign(&mut self, rhs: i32) {
-        self.0 = self.0 - rhs as u8;
+        self.0 = self.0.wrapping_sub(rhs as u8);
     }
 }
 

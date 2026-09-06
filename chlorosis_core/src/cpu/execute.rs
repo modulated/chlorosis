@@ -22,8 +22,10 @@ impl Device {
             }
             // 0x02
             LD_aBC_A => {
+                // Stores A at (BC) - this previously read from (BC) into A,
+                // the inverse of the instruction.
                 let addr = self.cpu.read_bc();
-                self.cpu.a = self.read(addr);
+                self.write(addr, self.cpu.a);
                 self.cpu.cost = 2;
             }
             // 0x03
@@ -173,7 +175,7 @@ impl Device {
             }
             // 0x1B
             DEC_DE => {
-                self.cpu.write_de(self.cpu.read_de());
+                self.cpu.write_de(self.cpu.read_de() - 1);
                 self.cpu.cost = 2;
             }
             // 0x1C
@@ -245,8 +247,33 @@ impl Device {
             }
             // 0x27
             DAA => {
-                // TODO: implement BCD operation
-                unimplemented!()
+                // Decimal-adjust A after a BCD add or subtract, using the flags
+                // the arithmetic left behind. Add and subtract correct in
+                // opposite directions; H and (for adds) the 0x99 threshold say
+                // which nibbles need a +/-6.
+                let mut a = self.cpu.a.0;
+                let mut carry = self.cpu.c_flag;
+                if self.cpu.n_flag {
+                    if self.cpu.h_flag {
+                        a = a.wrapping_sub(0x06);
+                    }
+                    if self.cpu.c_flag {
+                        a = a.wrapping_sub(0x60);
+                    }
+                } else {
+                    if self.cpu.c_flag || a > 0x99 {
+                        a = a.wrapping_add(0x60);
+                        carry = true;
+                    }
+                    if self.cpu.h_flag || (a & 0x0F) > 0x09 {
+                        a = a.wrapping_add(0x06);
+                    }
+                }
+                self.cpu.a = Byte(a);
+                self.cpu.z_flag = a == 0;
+                self.cpu.h_flag = false;
+                self.cpu.c_flag = carry;
+                self.cpu.cost = 1;
             }
             // 0x28
             JR_Z_s8(signed) => {

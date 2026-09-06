@@ -9,7 +9,8 @@ use std::{
 use super::{Address, Byte};
 
 use crate::{
-    constants::*, mbc::Mbc, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Timer,
+    constants::*, mbc::Mbc, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Serial,
+    Timer,
 };
 
 use super::{types::CartrigeHeader, AudioProcessor, CentralProcessor, PixelProcessor};
@@ -61,6 +62,7 @@ pub struct Device {
     mbc: Mbc,
     wram_bank: Byte,
     infrared: Infrared,
+    serial: Serial,
     timer: Timer,
     /// Raw store for the audio registers `0xFF10-0xFF3F`. Audio is out of scope
     /// for now, but ROMs write these within the first few hundred instructions
@@ -98,6 +100,7 @@ impl Device {
             cartrige: None,
             joypad: Joypad::default(),
             infrared: Infrared::default(),
+            serial: Serial::default(),
             timer: Timer::default(),
             audio_regs: [Byte(0); AUDIO_REG_COUNT],
             rom: vec![Byte(0); ROM_BANK_SIZE * 2], // resized to the cartridge on load
@@ -190,8 +193,10 @@ impl Device {
         Control::Continue
     }
 
-    /// Advance every component by `ticks` of the 4.19 MHz master clock.
-    fn tick(&mut self, ticks: u32) {
+    /// Advance every component by `ticks` of the master clock. Public so a
+    /// headless harness can drive the machine directly, without the frame pacer
+    /// or the frontend channels that [`Self::run`] uses.
+    pub fn tick(&mut self, ticks: u32) {
         for _ in 0..ticks {
             // The PPU and timer run on the master clock, one step per tick.
             let mut pending = self.ppu.step();
@@ -421,6 +426,12 @@ impl Device {
         Ok(())
     }
 
+    /// Bytes the ROM has shifted out of the serial port - its console output,
+    /// used by test ROMs to report results.
+    pub fn serial_output(&self) -> &[u8] {
+        self.serial.output()
+    }
+
     pub const fn get_cartridge_header(&self) -> Option<&CartrigeHeader> {
         self.cartrige.as_ref()
     }
@@ -461,13 +472,14 @@ impl Device {
                 self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
                     - Address(WRAM_1_START)]
             }
-            DEADZONE_0_START..=DEADZONE_0_END => panic!("Prohibited memory access at {address}"),
+            // Echo RAM mirrors WRAM 0x2000 below it.
+            DEADZONE_0_START..=DEADZONE_0_END => self.read(address - Address(0x2000)),
             OAM_START..=OAM_END => self.ppu.read_oam(address),
-            DEADZONE_1_START..=DEADZONE_1_END => panic!("Prohibited memory access at {address}"),
+            DEADZONE_1_START..=DEADZONE_1_END => Byte(0xFF), // unusable region
 
             // IO START
             0xFF00 => self.joypad.read(), // Joypad
-            0xFF01..=0xFF02 => Byte(0),   // TODO: Serial
+            0xFF01..=0xFF02 => self.serial.read(address), // Serial
             0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.read(address), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
@@ -508,13 +520,14 @@ impl Device {
                 self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
                     - Address(WRAM_1_START)] = value
             }
-            DEADZONE_0_START..=DEADZONE_0_END => panic!("Prohibited memory access at {address}"),
+            // Echo RAM mirrors WRAM 0x2000 below it.
+            DEADZONE_0_START..=DEADZONE_0_END => self.write(address - Address(0x2000), value),
             OAM_START..=OAM_END => self.ppu.write_oam(address, value),
-            DEADZONE_1_START..=DEADZONE_1_END => panic!("Prohibited memory access at {address}"),
+            DEADZONE_1_START..=DEADZONE_1_END => {} // unusable region
 
             // IO_START
             0xFF00 => self.joypad.write(value), // Joypad
-            0xFF01..=0xFF02 => {}               // TODO: Serial
+            0xFF01..=0xFF02 => self.serial.write(address, value), // Serial
             0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.write(address, value), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
