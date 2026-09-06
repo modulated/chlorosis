@@ -5,7 +5,7 @@
 //! the emulator last published and goes straight back to pumping window events,
 //! so the window stays responsive regardless of what the emulator is doing.
 
-use std::{sync::mpsc::Receiver, thread, time::Duration};
+use std::{sync::mpsc::Receiver, thread};
 
 use chlorosis_core::{
     channels, framebuffer::blank_frame, CoreMessage, Device, EmulatorState, Event, Frame,
@@ -151,9 +151,10 @@ impl Ui {
                 // This blocks the frontend for as long as the dialog is up. The
                 // emulator keeps running behind it, which is the point of the
                 // split.
-                let file = native_dialog::FileDialog::new()
-                    .add_filter("GBC ROM", &["gbc", "gb"])
-                    .show_open_single_file();
+                let file = native_dialog::DialogBuilder::file()
+                    .add_filter("GBC ROM", ["gbc", "gb"])
+                    .open_single_file()
+                    .show();
 
                 match file {
                     Ok(Some(f)) => {
@@ -222,8 +223,8 @@ fn build_window() -> Window {
         panic!("{}", e);
     });
 
-    // Paces this thread only. The emulator keeps its own clock.
-    window.limit_update_rate(Some(Duration::from_millis(16)));
+    // Paces this thread only (~60 fps). The emulator keeps its own clock.
+    window.set_target_fps(60);
 
     let mut menu = Menu::new("File").unwrap();
     menu.add_item("Open ROM", MENU_OPEN_ROM)
