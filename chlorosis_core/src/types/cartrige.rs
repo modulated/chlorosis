@@ -42,6 +42,10 @@ impl CartrigeHeader {
     pub fn from_bytes(slice: &[Byte]) -> Self {
         CartrigeHeaderRaw::from_bytes(slice).into()
     }
+
+    pub fn title(&self) -> &str {
+        self.title.trim_end_matches(['\0', ' '])
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion

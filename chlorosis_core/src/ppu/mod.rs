@@ -8,13 +8,13 @@ use self::{
     registers::{StatusMode, TileAddressingMode},
     tile::Tile,
 };
-use crate::{constants::*, Address, Byte};
+use crate::{constants::*, framebuffer::FRAME_LEN, Address, Byte};
 use std::collections::VecDeque;
 
 #[derive(Debug)]
 #[allow(non_snake_case)]
 pub struct PixelProcessor {
-    pub buffer: Option<[u32; 160 * 144]>,
+    buffer: Option<[u32; FRAME_LEN]>,
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
     pub oam: [Byte; OAM_SIZE],
@@ -86,6 +86,14 @@ impl Default for PixelProcessor {
 }
 
 impl PixelProcessor {
+    /// Take the completed frame, if one is ready.
+    ///
+    /// The emulation loop pulls frames from here rather than reaching into the
+    /// buffer directly, so "a frame is finished" stays a fact the PPU decides.
+    pub const fn take_frame(&mut self) -> Option<[u32; FRAME_LEN]> {
+        self.buffer.take()
+    }
+
     pub fn step(&mut self) {
         // Step PPU one dot, runs at 4.194 MHz
         // One frame is 16.74 ms or 70224 dots

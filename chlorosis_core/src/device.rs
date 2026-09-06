@@ -1,14 +1,31 @@
 use std::{
+    any::Any,
+    panic::{catch_unwind, AssertUnwindSafe},
     path::PathBuf,
-    sync::mpsc::{Receiver, Sender, TryRecvError},
+    sync::mpsc::TryRecvError,
     time::{Duration, Instant},
 };
 
 use super::{Address, Byte};
 
-use crate::{constants::*, Event, Infrared, Joypad, KeyCode, Timer};
+use crate::{constants::*, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Timer};
 
 use super::{types::CartrigeHeader, AudioProcessor, CentralProcessor, PixelProcessor};
+
+/// Master clock ticks in one video frame: 154 lines of 456 dots.
+pub const TICKS_PER_FRAME: u32 = 70_224;
+
+/// 4.194304 MHz / 70224 ticks == 59.7275 Hz.
+const FRAME_TIME: Duration = Duration::from_nanos(16_742_706);
+
+/// How far behind real time the emulator may fall before it stops trying to
+/// catch up. Without this a long host stall (a dragged window, a swapped out
+/// page) leaves a debt the emulator repays by sprinting through several frames
+/// of gameplay at once.
+const MAX_CATCHUP_FRAMES: u32 = 4;
+
+/// How often throughput is reported to the frontend.
+const SPEED_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
 pub struct Device {
@@ -26,15 +43,26 @@ pub struct Device {
     wram_bank: Byte,
     infrared: Infrared,
     timer: Timer,
-    state: DeviceState,
+    state: EmulatorState,
     rom_path: Option<PathBuf>,
 }
 
+/// Whether the emulator is executing. The emulation thread is the only owner of
+/// this; the frontend learns about changes through [`CoreMessage::State`]
+/// rather than tracking its own copy.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum DeviceState {
+pub enum EmulatorState {
+    /// No cartridge loaded.
     Stopped,
     Running,
     Paused,
+}
+
+/// Whether the emulation loop should keep going after handling an event.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Control {
+    Continue,
+    Shutdown,
 }
 
 impl Device {
@@ -55,98 +83,217 @@ impl Device {
             hram: vec![Byte(0); HRAM_SIZE],
             interrupt: Byte(0),
             rom_path: None,
-            state: DeviceState::Stopped,
+            state: EmulatorState::Stopped,
         }
     }
 
-    pub fn run(&mut self, buffer: Sender<Vec<u32>>, event: Receiver<Event>) {
-        // Outer loop should run at 4.1 MHz (or 8.2 if double speed enabled)
+    /// Run the emulator until the frontend asks it to stop. Intended as the
+    /// body of a dedicated thread.
+    ///
+    /// The memory map still reaches `panic!` and `unimplemented!` in plenty of
+    /// places, and a ROM only has to touch one of them to kill this thread. If
+    /// that were allowed to happen silently the frontend would keep presenting
+    /// a frozen picture with no explanation, so the panic is caught and
+    /// reported before the thread winds down.
+    pub fn run(&mut self, channels: CoreChannels) {
+        let messages = channels.messages.clone();
+        if let Err(panic) = catch_unwind(AssertUnwindSafe(|| self.run_loop(&channels))) {
+            // The frontend may already be gone, in which case there is nobody
+            // left to tell and nothing to do about it.
+            let _ = messages.send(CoreMessage::Faulted(describe_panic(panic.as_ref())));
+        }
+    }
 
-        let mut start = Instant::now();
-        let mut last_frame = Instant::now();
+    fn run_loop(&mut self, channels: &CoreChannels) {
+        let mut pacer = Pacer::new();
 
         loop {
-            match self.state {
-                DeviceState::Stopped => self.stopped(&event),
-                DeviceState::Running => self.running(&mut start, &mut last_frame, &buffer, &event),
-                DeviceState::Paused => self.paused(&event),
+            let control = match self.state {
+                // Nothing to emulate, so block rather than poll: the thread
+                // costs nothing while idle and still reacts to the next event
+                // the instant it arrives, instead of up to a sleep later.
+                EmulatorState::Stopped | EmulatorState::Paused => {
+                    let control = self.wait_for_event(channels);
+                    pacer.resume();
+                    control
+                }
+                EmulatorState::Running => self.run_one_frame(channels, &mut pacer),
+            };
+
+            if control == Control::Shutdown {
+                return;
             }
         }
     }
 
-    fn running(
-        &mut self,
-        start: &mut Instant,
-        last_frame: &mut Instant,
-        buffer: &Sender<Vec<u32>>,
-        event: &Receiver<Event>,
-    ) {
-        const TARGET: Duration = Duration::from_nanos(240); // roughly 240 ns per tick
+    /// Emulate exactly one frame, then sleep until that frame's worth of real
+    /// time has elapsed.
+    ///
+    /// The frame is the scheduling quantum on purpose. Pacing per tick means
+    /// asking the OS to sleep for 240 ns 70,224 times a frame, and no
+    /// general purpose scheduler will wake you that precisely - each of those
+    /// sleeps overshoots by tens of microseconds, so the emulator ends up
+    /// running orders of magnitude below real speed. One sleep per frame is
+    /// both accurate enough to hit 59.7275 Hz and cheap enough to be free.
+    fn run_one_frame(&mut self, channels: &CoreChannels, pacer: &mut Pacer) -> Control {
+        // Drain the whole queue, not one event per frame: input arrives in
+        // press/release pairs, and taking a single event per frame turns a
+        // tap into a backlog that grows for as long as the player keeps
+        // playing.
+        if self.drain_events(channels) == Control::Shutdown {
+            return Control::Shutdown;
+        }
 
-        // Step CPU one cycle
-        self.step_cpu();
+        // An event may have halted us; let the loop re-dispatch rather than
+        // emulating one more frame the user did not ask for.
+        if self.state != EmulatorState::Running {
+            return Control::Continue;
+        }
 
-        // Step PPU one cycle
-        self.ppu.step();
+        self.tick(TICKS_PER_FRAME);
+        self.publish_frame(channels);
 
-        // Render audio
-
-        let end = Instant::now();
-        if (end - *last_frame) >= Duration::from_millis(16) {
-            // Send
-            if let Some(b) = &self.ppu.buffer {
-                buffer.send(b.to_vec()).unwrap();
-                self.ppu.buffer = None;
+        if let Some(report) = pacer.frame_completed() {
+            if channels.messages.send(report).is_err() {
+                return Control::Shutdown;
             }
+        }
 
-            // Get events
-            match event.try_recv() {
-                Ok(event) => self.handle_event(event),
-                Err(err) => match err {
-                    TryRecvError::Disconnected => panic!("{err}"),
-                    TryRecvError::Empty => {}
-                },
+        Control::Continue
+    }
+
+    /// Advance every component by `ticks` of the 4.19 MHz master clock.
+    fn tick(&mut self, ticks: u32) {
+        for _ in 0..ticks {
+            self.step_cpu();
+            self.ppu.step();
+            self.timer.tick();
+        }
+    }
+
+    /// Hand the frontend a finished frame, if the PPU produced one.
+    ///
+    /// Frames go out when the PPU says a frame is done rather than on a wall
+    /// clock, so what the frontend shows is whole frames and not whatever the
+    /// PPU happened to have drawn when a timer expired.
+    fn publish_frame(&mut self, channels: &CoreChannels) {
+        if let Some(rendered) = self.ppu.take_frame() {
+            let mut frame = channels.frames.acquire();
+            frame.copy_from_slice(&rendered);
+            channels.frames.publish(frame);
+        }
+    }
+
+    fn drain_events(&mut self, channels: &CoreChannels) -> Control {
+        loop {
+            match channels.events.try_recv() {
+                Ok(event) => {
+                    if self.handle_event(event, channels) == Control::Shutdown {
+                        return Control::Shutdown;
+                    }
+                }
+                Err(TryRecvError::Empty) => return Control::Continue,
+                // The frontend is gone; there is nothing left to emulate for.
+                Err(TryRecvError::Disconnected) => return Control::Shutdown,
             }
-
-            *last_frame = end;
         }
-
-        // Sleep as needed
-        let dif = end - *start;
-        if dif < TARGET {
-            std::thread::sleep(TARGET - dif);
-        }
-        *start = end;
     }
 
-    fn stopped(&mut self, event: &Receiver<Event>) {
-        match event.try_recv() {
-            Ok(event) => self.handle_event(event),
-            Err(err) => match err {
-                TryRecvError::Disconnected => panic!("{err}"),
-                TryRecvError::Empty => {}
-            },
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    fn wait_for_event(&mut self, channels: &CoreChannels) -> Control {
+        channels.events.recv().map_or(Control::Shutdown, |event| {
+            self.handle_event(event, channels)
+        })
     }
 
-    fn paused(&mut self, event: &Receiver<Event>) {
-        match event.try_recv() {
-            Ok(event) => self.handle_event(event),
-            Err(err) => match err {
-                TryRecvError::Disconnected => panic!("{err}"),
-                TryRecvError::Empty => {}
-            },
+    fn handle_event(&mut self, event: Event, channels: &CoreChannels) -> Control {
+        match event {
+            Event::KeyDown(keys) => self.handle_keydown(keys),
+            Event::KeyUp(keys) => self.handle_keyup(keys),
+            Event::LoadFile(path) => self.handle_load_file(&path, channels),
+            Event::Run => {
+                if self.cartrige.is_some() {
+                    self.set_state(EmulatorState::Running, channels);
+                } else {
+                    report(channels, CoreMessage::Error("No cartrige loaded".to_owned()));
+                }
+            }
+            Event::Pause => {
+                if self.state == EmulatorState::Running {
+                    self.set_state(EmulatorState::Paused, channels);
+                }
+            }
+            Event::Step(ticks) => {
+                // Stepping is only meaningful while halted; while running the
+                // emulator is already advancing on its own.
+                if self.state == EmulatorState::Paused {
+                    self.tick(ticks);
+                    self.publish_frame(channels);
+                }
+            }
+            Event::Reset => self.handle_reset(channels),
+            // Unsupported requests are reported, never panicked on: a menu item
+            // the frontend has not finished wiring up must not be able to take
+            // the emulation thread down with it.
+            Event::SaveState(_) | Event::LoadState(_) => report(
+                channels,
+                CoreMessage::Error("Save states are not implemented".to_owned()),
+            ),
+            Event::Exit => return Control::Shutdown,
         }
-        std::thread::sleep(Duration::from_millis(100));
+        Control::Continue
     }
 
-    fn reset(&mut self) {
+    fn handle_load_file(&mut self, path: &std::path::Path, channels: &CoreChannels) {
+        match self.load_cartrige(path) {
+            Ok(()) => {
+                let title = self
+                    .cartrige
+                    .as_ref()
+                    .map_or("Unknown", CartrigeHeader::title)
+                    .to_owned();
+                report(channels, CoreMessage::CartridgeLoaded(title));
+                self.set_state(EmulatorState::Running, channels);
+            }
+            Err(e) => report(
+                channels,
+                CoreMessage::Error(format!("Could not load {}: {e}", path.display())),
+            ),
+        }
+    }
+
+    fn handle_reset(&mut self, channels: &CoreChannels) {
+        match self.reset() {
+            Ok(()) => {
+                let state = if self.cartrige.is_some() {
+                    EmulatorState::Running
+                } else {
+                    EmulatorState::Stopped
+                };
+                self.set_state(state, channels);
+            }
+            Err(e) => {
+                report(channels, CoreMessage::Error(format!("Reset failed: {e}")));
+                self.set_state(EmulatorState::Stopped, channels);
+            }
+        }
+    }
+
+    fn set_state(&mut self, state: EmulatorState, channels: &CoreChannels) {
+        if self.state != state {
+            self.state = state;
+            report(channels, CoreMessage::State(state));
+        }
+    }
+
+    pub const fn state(&self) -> EmulatorState {
+        self.state
+    }
+
+    /// Restore power on state, keeping whatever cartridge is inserted.
+    fn reset(&mut self) -> Result<(), std::io::Error> {
         let rom = self.rom_path.clone();
         *self = Self::new();
-        if let Some(rom) = rom {
-            self.load_cartrige(rom).unwrap();
-        }
+        rom.map_or(Ok(()), |rom| self.load_cartrige(rom))
     }
 
     pub fn load_cartrige(
@@ -154,6 +301,7 @@ impl Device {
         path: impl AsRef<std::path::Path>,
     ) -> Result<(), std::io::Error> {
         use std::io::Read;
+        let path = path.as_ref();
         let mut f = std::fs::File::open(path)?;
         let mut buf = vec![];
         f.read_to_end(&mut buf)?;
@@ -164,10 +312,9 @@ impl Device {
             self.rom[i as usize] = Byte(*iter.next().expect("Early end to cartrige"));
         }
         self.cartrige = Some(CartrigeHeader::from_bytes(self.get_header()));
+        self.rom_path = Some(path.to_path_buf());
         self.dump_cartrige_header();
         // TODO: read rest of ROM
-
-        self.state = DeviceState::Running;
 
         Ok(())
     }
@@ -289,20 +436,6 @@ impl Device {
             .map_or_else(|| println!("No cartrige loaded"), |c| println!("{c:#?}"))
     }
 
-    fn handle_event(&mut self, event: Event) {
-        println!("{event:?}");
-        match event {
-            Event::KeyDown(k) => self.handle_keydown(k),
-            Event::KeyUp(k) => self.handle_keyup(k),
-            Event::LoadFile(f) => self.load_cartrige(f).unwrap(),
-            Event::Pause => self.state = DeviceState::Paused,
-            Event::Run => self.state = DeviceState::Running,
-            Event::Reset => self.reset(),
-            Event::Exit => std::process::exit(0),
-            _ => unimplemented!("Unimplemented event {event:?}"),
-        }
-    }
-
     fn handle_keydown(&mut self, keys: Vec<KeyCode>) {
         for b in keys {
             self.joypad.press(b);
@@ -319,5 +452,82 @@ impl Device {
 impl Default for Device {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Sends a report to the frontend, tolerating its absence. A frontend that has
+/// already shut down is not an emulation error, and the loop notices the
+/// disconnect on its next event drain anyway.
+fn report(channels: &CoreChannels, message: CoreMessage) {
+    let _ = channels.messages.send(message);
+}
+
+fn describe_panic(payload: &(dyn Any + Send)) -> String {
+    payload.downcast_ref::<&'static str>().map_or_else(
+        || {
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_else(|| "emulation thread panicked".to_owned())
+        },
+        |s| (*s).to_owned(),
+    )
+}
+
+/// Keeps emulated time aligned with real time.
+///
+/// Deadlines accumulate from a fixed origin rather than being recomputed from
+/// "now" each frame, so the microseconds a sleep overshoots by are absorbed by
+/// the next frame instead of compounding into visible drift.
+#[derive(Debug)]
+struct Pacer {
+    next_frame: Instant,
+    window_started: Instant,
+    frames_in_window: u32,
+}
+
+impl Pacer {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            next_frame: now,
+            window_started: now,
+            frames_in_window: 0,
+        }
+    }
+
+    /// Restart pacing after an idle period, so time spent paused is not
+    /// mistaken for emulation debt.
+    fn resume(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Sleep out the remainder of the current frame, returning a throughput
+    /// report roughly once a second.
+    fn frame_completed(&mut self) -> Option<CoreMessage> {
+        self.frames_in_window += 1;
+        self.next_frame += FRAME_TIME;
+
+        let now = Instant::now();
+        if let Some(remaining) = self.next_frame.checked_duration_since(now) {
+            std::thread::sleep(remaining);
+        } else if now.duration_since(self.next_frame) > FRAME_TIME * MAX_CATCHUP_FRAMES {
+            // Hopelessly behind: drop the backlog and pace from here.
+            self.next_frame = now;
+        }
+
+        let elapsed = now.duration_since(self.window_started);
+        if elapsed < SPEED_REPORT_INTERVAL {
+            return None;
+        }
+
+        let fps = f64::from(self.frames_in_window) / elapsed.as_secs_f64();
+        self.window_started = now;
+        self.frames_in_window = 0;
+
+        Some(CoreMessage::Speed {
+            fps: fps as f32,
+            percent: (fps * FRAME_TIME.as_secs_f64() * 100.0) as f32,
+        })
     }
 }

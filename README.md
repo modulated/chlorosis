@@ -1,6 +1,37 @@
 # Chlorosis
 Gameboy and Gameboy Color emulator
 
+## Architecture
+
+The emulator and the window run on separate threads and never block on each
+other.
+
+```
+  frontend thread                            emulation thread
+  (debugger/src/main.rs)                     (chlorosis_core::Device)
+
+    window events  --- Event ------------->  drained every frame
+    window title   <-- CoreMessage --------  state, faults, speed
+    presents       <-- frame swap ---------  published per PPU frame
+```
+
+* **`Event`** carries intents one way only. The frontend asks; it never
+  mutates the emulator and never decides the emulator's state for it.
+* **`CoreMessage`** carries what actually happened back: state changes,
+  errors, faults, and a speed report. The emulator is the single authority on
+  its own state, so the two sides cannot drift out of sync.
+* **Frames** cross through a two slot swap (`chlorosis_core::framebuffer`)
+  rather than a queue. Publishing overwrites any frame the frontend has not
+  collected, so latency stays bounded at one frame however far the two rates
+  drift, and steady state does not allocate.
+
+The emulation thread schedules a frame at a time: 70,224 master clock ticks
+back to back, then one sleep to the next 16.742 ms deadline, with deadlines
+accumulated from a fixed origin so sleep overshoot does not compound. Falling
+more than a few frames behind resets the deadline instead of sprinting to catch
+up. The frontend paces itself independently and always redraws its last frame,
+so a slow emulator makes the picture stale rather than making the window lag.
+
 ## Memory
 - 32 KB Work RAM
 - Cartrige space
