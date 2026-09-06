@@ -94,21 +94,23 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn rlc(&mut self, val: Byte) -> Byte {
+        self.clear_flags(); // N and H must be cleared, not left as they were
         let b7 = val.is_bit_set(7);
-        let mut val = val << 1;
-        self.check_zero(val);
         self.c_flag = b7;
+        let mut val = val << 1;
         val.write_bit(0, b7);
+        self.check_zero(val);
         val
     }
 
     #[inline(always)]
     pub fn rrc(&mut self, val: Byte) -> Byte {
+        self.clear_flags();
         let b0 = val.is_bit_set(0);
-        let mut val = val >> 1;
-        self.check_zero(val);
         self.c_flag = b0;
+        let mut val = val >> 1;
         val.write_bit(7, b0);
+        self.check_zero(val);
         val
     }
 
@@ -153,10 +155,13 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn sra(&mut self, val: Byte) -> Byte {
+        // Arithmetic shift right preserves the sign bit; this had set bit 7 to
+        // the carry (the old bit 0) instead of keeping the old bit 7.
         self.clear_flags();
+        let sign = val.is_bit_set(7);
         self.c_flag = val.is_bit_set(0);
         let mut val = val >> 1;
-        val.write_bit(7, self.c_flag);
+        val.write_bit(7, sign);
         self.check_zero(val);
         val
     }

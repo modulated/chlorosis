@@ -1571,7 +1571,7 @@ impl Device {
             }
             // 0xCB0F
             RRC_A => {
-                self.cpu.b = self.cpu.rrc(self.cpu.b);
+                self.cpu.a = self.cpu.rrc(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 0
@@ -1658,7 +1658,7 @@ impl Device {
             }
             // 0xCB1F
             RR_A => {
-                self.cpu.b = self.cpu.rr(self.cpu.b);
+                self.cpu.a = self.cpu.rr(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 1
@@ -1745,7 +1745,7 @@ impl Device {
             }
             // 0xCB2F
             SRA_A => {
-                self.cpu.b = self.cpu.sra(self.cpu.b);
+                self.cpu.a = self.cpu.sra(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 2
@@ -1832,7 +1832,7 @@ impl Device {
             }
             // 0xCB3F
             SRL_A => {
-                self.cpu.b = self.cpu.srl(self.cpu.b);
+                self.cpu.a = self.cpu.srl(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 3
