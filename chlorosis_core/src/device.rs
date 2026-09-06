@@ -369,16 +369,34 @@ impl Device {
         let mut f = std::fs::File::open(path)?;
         let mut buf = vec![];
         f.read_to_end(&mut buf)?;
-
-        let mut iter = buf.iter().skip(0x0100);
         println!("Reading cartrige, {} bytes", buf.len());
-        for i in 0x0100..=ROM_0_END {
-            self.rom[i as usize] = Byte(*iter.next().expect("Early end to cartrige"));
+
+        // Load the entire file, not just 0x0100..=0x3FFF. The old copy left the
+        // interrupt/RST vectors at 0x0000-0x00FF and every bank past the first
+        // as zeros - so a jump to a vector, or any code above bank 0, ran into
+        // blank memory.
+        if buf.len() < 0x0150 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "cartrige is too small to contain a header",
+            ));
         }
-        self.cartrige = Some(CartrigeHeader::from_bytes(self.get_header()));
+        self.rom = buf.into_iter().map(Byte).collect();
+
+        // Size the ROM image from the header, so bank arithmetic addresses a
+        // buffer that is actually large enough. A ROM should already be its
+        // declared size and a whole number of banks; pad with open-bus 0xFF if
+        // it falls short rather than panicking on a read.
+        let header = CartrigeHeader::from_bytes(self.get_header());
+        let declared = header.rom_size() as usize;
+        let sized = declared
+            .max(self.rom.len())
+            .next_multiple_of(ROM_BANK_SIZE);
+        self.rom.resize(sized, Byte(0xFF));
+
+        self.cartrige = Some(header);
         self.rom_path = Some(path.to_path_buf());
         self.dump_cartrige_header();
-        // TODO: read rest of ROM
 
         Ok(())
     }
@@ -387,11 +405,24 @@ impl Device {
         self.cartrige.as_ref()
     }
 
+    /// Read a byte from the flat ROM image at a physical `offset`, returning
+    /// open-bus `0xFF` for offsets past the end (an out-of-range bank, or a ROM
+    /// smaller than its header claims).
+    fn read_rom(&self, offset: usize) -> Byte {
+        self.rom.get(offset).copied().unwrap_or(Byte(0xFF))
+    }
+
     pub fn read(&mut self, address: Address) -> Byte {
         match address.0 {
-            ROM_0_START..=ROM_0_END => self.rom[address],
+            // Bank 0 is fixed at the start of the ROM.
+            ROM_0_START..=ROM_0_END => self.read_rom(address.0 as usize),
+            // The switchable bank. The physical offset is computed in `usize`:
+            // `Address` is a `u16`, so the old `address + ROM_1_START * (bank-1)`
+            // wrapped for any bank past the first 64 KB of ROM.
             ROM_1_START..=ROM_1_END => {
-                self.rom[address + Address(ROM_1_START) * (self.rom_bank - 1)]
+                let offset =
+                    self.rom_bank * ROM_BANK_SIZE + (address.0 as usize - ROM_1_START as usize);
+                self.read_rom(offset)
             }
             VRAM_START..=VRAM_END => self.ppu.read_vram(address),
             ERAM_START..=ERAM_END => self.eram[address - Address(ERAM_START)], // External ram
@@ -428,10 +459,12 @@ impl Device {
 
     pub fn write(&mut self, address: Address, value: Byte) {
         match address.0 {
-            ROM_0_START..=ROM_0_END => self.rom[address] = value,
-            ROM_1_START..=ROM_1_END => {
-                self.rom[address + Address(ROM_1_START) * (self.rom_bank - 1)] = value
-            }
+            // Writes into the ROM range are never stored - ROM is read-only.
+            // On a banked cartridge they set the MBC's bank/control registers;
+            // wiring that up (and so making `rom_bank` change) is item 4. Until
+            // then they are dropped rather than corrupting the ROM image, which
+            // is what `self.rom[address] = value` used to do.
+            ROM_0_START..=ROM_1_END => {}
             VRAM_START..=VRAM_END => {
                 self.ppu.write_vram(address, value);
             }
@@ -599,7 +632,10 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::Device;
-    use crate::{constants::Interrupts, Address, Byte};
+    use crate::{
+        constants::{Interrupts, ROM_BANK_SIZE},
+        Address, Byte,
+    };
 
     #[test]
     fn if_and_ie_are_independent_registers() {
@@ -671,6 +707,72 @@ mod tests {
         assert!(!dev.cpu.halted, "HALT ends when an enabled interrupt is pending");
         assert_ne!(dev.cpu.pc, Address(0x0040), "not vectored (IME clear)");
         assert_eq!(dev.read(Address(0xFF0F)).0 & 0x01, 0x01, "request still pending");
+    }
+
+    #[test]
+    fn switchable_bank_addresses_past_64k_without_wrapping() {
+        // Four banks, each filled with its own bank number, so a byte's value
+        // reveals which bank a read actually landed in.
+        let mut dev = Device::new();
+        dev.rom = (0..4 * ROM_BANK_SIZE)
+            .map(|i| Byte((i / ROM_BANK_SIZE) as u8))
+            .collect();
+
+        // Bank 0 is fixed at 0x0000-0x3FFF.
+        assert_eq!(dev.read(Address(0x0000)), Byte(0));
+        assert_eq!(dev.read(Address(0x3FFF)), Byte(0));
+
+        // 0x4000-0x7FFF follows the selected bank. Bank 3 sits at physical
+        // offset 0xC000, which overflowed the old u16 arithmetic to 0x0000.
+        dev.rom_bank = 1;
+        assert_eq!(dev.read(Address(0x4000)), Byte(1));
+        dev.rom_bank = 3;
+        assert_eq!(dev.read(Address(0x4000)), Byte(3));
+        assert_eq!(dev.read(Address(0x7FFF)), Byte(3));
+    }
+
+    #[test]
+    fn reads_past_the_rom_return_open_bus() {
+        let mut dev = Device::new();
+        dev.rom = vec![Byte(0x11); ROM_BANK_SIZE * 2]; // 32 KB, banks 0 and 1 only
+        dev.rom_bank = 7; // a bank this ROM does not have
+        assert_eq!(dev.read(Address(0x4000)), Byte(0xFF));
+    }
+
+    #[test]
+    fn rom_writes_do_not_corrupt_the_image() {
+        let mut dev = Device::new();
+        dev.rom = vec![Byte(0xAB); ROM_BANK_SIZE * 2];
+        dev.write(Address(0x2000), Byte(0x00)); // would be an MBC bank select
+        assert_eq!(dev.read(Address(0x2000)), Byte(0xAB), "ROM stayed read-only");
+    }
+
+    #[test]
+    fn load_cartrige_loads_the_whole_file_including_vectors() {
+        use std::io::Write;
+
+        // A minimal 32 KB image with a valid-enough header (ROM ONLY, 32 KB) so
+        // header parsing neither panics on get_rom_size nor transmutes a bad
+        // MBC discriminant.
+        let mut rom = vec![0u8; ROM_BANK_SIZE * 2];
+        rom[0x0040] = 0xAB; // VBlank vector - was left as zero by the old loader
+        rom[0x0147] = 0x00; // MBC type: ROM ONLY
+        rom[0x0148] = 0x00; // ROM size: 32 KB
+        rom[0x7FFF] = 0xCD; // last byte of the last bank
+
+        let mut file = tempfile::NamedTempFile::new().expect("temp rom");
+        file.write_all(&rom).expect("write rom");
+        file.flush().expect("flush rom");
+
+        let mut dev = Device::new();
+        dev.load_cartrige(file.path()).expect("load");
+
+        assert_eq!(dev.read(Address(0x0040)), Byte(0xAB), "vectors loaded");
+        assert_eq!(dev.read(Address(0x7FFF)), Byte(0xCD), "whole file loaded");
+        assert_eq!(
+            dev.get_cartridge_header().expect("header").rom_size(),
+            0x8000,
+        );
     }
 
     #[test]

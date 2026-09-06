@@ -46,6 +46,11 @@ impl CartrigeHeader {
     pub fn title(&self) -> &str {
         self.title.trim_end_matches(['\0', ' '])
     }
+
+    /// Total ROM size in bytes as declared by the header.
+    pub const fn rom_size(&self) -> u64 {
+        self.rom_size
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion

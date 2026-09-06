@@ -9,19 +9,23 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 1. Get the ROM into memory
 
-- [ ] **Load the whole file.** Only `0x0100..=0x3FFF` is copied today, so the
-  RST/interrupt vectors at `0x0000-0x00FF` are zero and banks 1+ are never
-  filled. — `device.rs` `load_cartrige`
-- [ ] **Size the ROM `Vec` from the header.** Hardcoded to 32 KB;
-  `CartrigeHeader::rom_banks` is parsed and unused. — `device.rs::new`,
-  `types/cartrige.rs`
-- [ ] **Address arithmetic truncates to 16 bits.** `Address` wraps a `u16` and
-  so does `Vec<Byte>` indexing, so `rom[addr + ROM_1_START * (bank-1)]` cannot
-  reach past 64 KB. Needs a `usize` ROM-offset path. — `types/address.rs`,
-  `device.rs::read/write`
-- [ ] **Wire `mod mbc` into `read`/`write`.** ROM-region writes currently land
-  in the ROM array instead of hitting bank registers; `set_cartrige_bank` has no
-  callers. (Deferrable if testing with a 32 KB no-MBC ROM first.)
+- [x] **Load the whole file.** `load_cartrige` now reads the entire file into
+  the ROM image, so the RST/interrupt vectors at `0x0000-0x00FF` and every bank
+  are present (a header smaller than 0x150 is rejected). — `device.rs`
+- [x] **Size the ROM `Vec` from the header.** The image is resized to the
+  header's declared size (never below the file, rounded up to a whole bank),
+  padded with open-bus `0xFF`. Added `CartrigeHeader::rom_size()`. —
+  `device.rs::load_cartrige`, `types/cartrige.rs`
+- [x] **Address arithmetic truncated to 16 bits.** The switchable-bank read now
+  computes `bank * 0x4000 + (addr - 0x4000)` in `usize` via `read_rom`, so it
+  reaches past 64 KB; the old `Address` (u16) math wrapped. Out-of-range offsets
+  return open-bus `0xFF`. — `device.rs::read`
+- [ ] **Wire `mod mbc` into `read`/`write`.** ROM-region writes are now dropped
+  (ROM is read-only) instead of corrupting the image, but they still don't drive
+  the MBC, so `rom_bank` never changes and only bank 1 is reachable at
+  `0x4000-0x7FFF`. 32 KB no-MBC ROMs work fully; banked ROMs run only their
+  bank-0 code until this lands. `set_cartrige_bank` still has no callers. —
+  `mbc/`, `device.rs::write`
 
 ## 2. Stop the memory map killing the core thread
 
@@ -112,10 +116,13 @@ Cheap unblockers first, so progress is observable rather than panicking on the
 first audio write or a dark LCD:
 
 **5 (audio stub) → 18 (VRAM/OAM guards) → 20 (boot state) → 11/12/13
-(interrupts) → 8 (CPU timing) → 15 (PPU mode timing)** ← done
-→ 1/2/3 (ROM loading + addressing) → 14/19 (renderer + palette) → 21 (joypad).
+(interrupts) → 8 (CPU timing) → 15 (PPU mode timing) → 1/2/3 (ROM loading +
+addressing)** ← done
+→ 14/19 (renderer + palette) → 4 (MBC banking) → 21 (joypad).
 
-Next up: **1/2/3** (load the full ROM, size it from the header, fix the 16-bit
-address truncation) so a real cartridge's code and data are actually present,
-then **14/19** (the renderer) to finally draw something. HALT/RETI/DAA's
-remaining pieces and the joypad polarity fix can slot in alongside.
+Next up: **14/19** — the renderer. Everything feeding it is now in place: a real
+ROM is fully loaded and correctly addressed, the CPU runs at the right rate,
+and the PPU walks its modes and raises VBlank, so `on_mode_entry` just needs to
+render the scanline on HBlank and publish the frame on VBlank. After that,
+**item 4** (MBC bank switching) to run ROMs larger than 32 KB in full, plus the
+leftover joypad polarity fix (21) and HALT-bug/DAA pieces (9).
