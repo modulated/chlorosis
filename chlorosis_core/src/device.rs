@@ -428,6 +428,8 @@ impl Device {
 
     /// Bytes the ROM has shifted out of the serial port - its console output,
     /// used by test ROMs to report results.
+    pub fn read_dbg(&mut self, x: u16) -> u8 { self.read(Address(x)).0 }
+
     pub fn serial_output(&self) -> &[u8] {
         self.serial.output()
     }
@@ -441,6 +443,17 @@ impl Device {
     /// smaller than its header claims).
     fn read_rom(&self, offset: usize) -> Byte {
         self.rom.get(offset).copied().unwrap_or(Byte(0xFF))
+    }
+
+    /// Physical `wram` index for a `0xD000-0xDFFF` access.
+    ///
+    /// The bank register selecting 0 means bank 1 on hardware, both on DMG and
+    /// CGB. Without that, a `0xD000-0xDFFF` access with the register at 0 mapped
+    /// onto the same bytes as `0xC000-0xCFFF`, so a write there silently
+    /// corrupted whatever lived in the fixed bank - including code.
+    const fn wram_1_index(&self, address: Address) -> usize {
+        let bank = if self.wram_bank.0 == 0 { 1 } else { self.wram_bank.0 } as usize;
+        (address.0 as usize - WRAM_1_START as usize) + bank * WRAM_BANK_SIZE
     }
 
     /// Copy the 160-byte OAM block from the page `page << 8` into the PPU's OAM,
@@ -468,10 +481,7 @@ impl Device {
                 .and_then(|o| self.eram.get(o).copied())
                 .unwrap_or(Byte(0xFF)),
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)],
-            WRAM_1_START..=WRAM_1_END => {
-                self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
-                    - Address(WRAM_1_START)]
-            }
+            WRAM_1_START..=WRAM_1_END => self.wram[self.wram_1_index(address)],
             // Echo RAM mirrors WRAM 0x2000 below it.
             DEADZONE_0_START..=DEADZONE_0_END => self.read(address - Address(0x2000)),
             OAM_START..=OAM_END => self.ppu.read_oam(address),
@@ -517,8 +527,8 @@ impl Device {
             }
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)] = value,
             WRAM_1_START..=WRAM_1_END => {
-                self.wram[address + (Address(WRAM_BANK_SIZE as u16) * self.wram_bank.0 as usize)
-                    - Address(WRAM_1_START)] = value
+                let index = self.wram_1_index(address);
+                self.wram[index] = value;
             }
             // Echo RAM mirrors WRAM 0x2000 below it.
             DEADZONE_0_START..=DEADZONE_0_END => self.write(address - Address(0x2000), value),
@@ -802,6 +812,20 @@ mod tests {
         assert_eq!(dev.read(Address(0x0000)), Byte(0xAB), "ROM image untouched");
         // And it took effect: the window now maps bank 2.
         assert_eq!(dev.read(Address(0x4000)), Byte(0xAB));
+    }
+
+    #[test]
+    fn wram_bank_zero_does_not_alias_the_fixed_bank() {
+        let mut dev = Device::new();
+        dev.write(Address(0xC800), Byte(0xAA)); // fixed bank 0
+
+        // Select WRAM bank 0; hardware treats it as bank 1, so 0xD000-0xDFFF
+        // must not land on the same bytes as 0xC000-0xCFFF.
+        dev.write(Address(0xFF70), Byte(0x00));
+        dev.write(Address(0xD800), Byte(0xBB));
+
+        assert_eq!(dev.read(Address(0xC800)), Byte(0xAA), "fixed bank corrupted");
+        assert_eq!(dev.read(Address(0xD800)), Byte(0xBB));
     }
 
     #[test]
