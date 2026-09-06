@@ -18,52 +18,47 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn add(&mut self, val: Byte) {
-        let old = self.a;
-        self.a = Byte(self.a.0.wrapping_add(val.0));
+        // ADD sets its flags from an *addition* - this used the subtract
+        // helpers, so every ADD/ADC produced wrong carry and half-carry.
+        let a = self.a.0;
+        self.h_flag = (a & 0xF) + (val.0 & 0xF) > 0xF;
+        self.c_flag = u16::from(a) + u16::from(val.0) > 0xFF;
+        self.a = Byte(a.wrapping_add(val.0));
         self.check_zero(self.a);
-        self.check_half_carry_sub_byte(old, val);
-        self.check_carry_sub_byte(old, val);
         self.n_flag = false;
     }
 
     #[inline(always)]
     pub fn adc(&mut self, val: Byte) {
-        let old = self.a;
-        if self.c_flag {
-            self.a = Byte(self.a.0.wrapping_add(val.0 + 1));
-            self.check_half_carry_sub_byte(old, Byte(val.0 + 1));
-            self.check_carry_sub_byte(old, Byte(val.0 + 1));
-        } else {
-            self.a = Byte(self.a.0.wrapping_add(val.0));
-            self.check_half_carry_sub_byte(old, val);
-            self.check_carry_sub_byte(old, val);
-        }
+        let a = self.a.0;
+        let carry = u8::from(self.c_flag);
+        // Fold the carry into the nibble/byte sums directly. The old code did
+        // `val + 1`, which both used the subtract helpers and overflowed when
+        // val was 0xFF.
+        self.h_flag = (a & 0xF) + (val.0 & 0xF) + carry > 0xF;
+        self.c_flag = u16::from(a) + u16::from(val.0) + u16::from(carry) > 0xFF;
+        self.a = Byte(a.wrapping_add(val.0).wrapping_add(carry));
         self.check_zero(self.a);
         self.n_flag = false;
     }
 
     #[inline(always)]
     pub fn sub(&mut self, val: Byte) {
-        let old = self.a;
-        self.a = Byte(self.a.0.wrapping_sub(val.0));
+        let a = self.a.0;
+        self.h_flag = (a & 0xF) < (val.0 & 0xF);
+        self.c_flag = a < val.0;
+        self.a = Byte(a.wrapping_sub(val.0));
         self.check_zero(self.a);
-        self.check_half_carry_sub_byte(old, val);
-        self.check_carry_sub_byte(old, val);
         self.n_flag = true;
     }
 
     #[inline(always)]
     pub fn sbc(&mut self, val: Byte) {
-        let old = self.a;
-        if self.c_flag {
-            self.a = Byte(self.a.0.wrapping_sub(val.0 + 1));
-            self.check_half_carry_sub_byte(old, Byte(val.0 + 1));
-            self.check_carry_sub_byte(old, Byte(val.0 + 1));
-        } else {
-            self.a = Byte(self.a.0.wrapping_sub(val.0));
-            self.check_half_carry_sub_byte(old, val);
-            self.check_carry_sub_byte(old, val);
-        }
+        let a = self.a.0;
+        let carry = u8::from(self.c_flag);
+        self.h_flag = (a & 0xF) < (val.0 & 0xF) + carry;
+        self.c_flag = u16::from(a) < u16::from(val.0) + u16::from(carry);
+        self.a = Byte(a.wrapping_sub(val.0).wrapping_sub(carry));
         self.check_zero(self.a);
         self.n_flag = true;
     }
@@ -206,8 +201,9 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn check_carry_sub_address(&mut self, a: Address, b: Address) {
-        let res = a.0.wrapping_sub(b.0);
-        self.c_flag = (res > a.0) || (res > b.0);
+        // A subtraction borrows exactly when the minuend is smaller. The old
+        // `res > b` term also flagged cases like 0xFF - 0x01 that do not borrow.
+        self.c_flag = a.0 < b.0;
     }
 
     #[inline(always)]
@@ -238,8 +234,7 @@ impl CentralProcessor {
 
     #[inline(always)]
     pub fn check_carry_sub_byte(&mut self, a: Byte, b: Byte) {
-        let res = a.0.wrapping_sub(b.0);
-        self.c_flag = (res > a.0) || (res > b.0);
+        self.c_flag = a.0 < b.0;
     }
 }
 
@@ -278,6 +273,59 @@ mod test {
         assert!(cpu.h_flag);
         cpu.check_half_carry_sub_byte(Byte(0x08), Byte(0x01));
         assert!(!cpu.h_flag);
+    }
+
+    #[test]
+    fn add_sets_addition_flags() {
+        let mut cpu = CentralProcessor::new();
+        cpu.a = Byte(0x0F);
+        cpu.add(Byte(0x01)); // 0x10: half-carry, no carry
+        assert_eq!(cpu.a, Byte(0x10));
+        assert!(cpu.h_flag && !cpu.c_flag && !cpu.z_flag && !cpu.n_flag);
+
+        cpu.a = Byte(0xFF);
+        cpu.add(Byte(0x01)); // wraps to 0: carry + half-carry + zero
+        assert_eq!(cpu.a, Byte(0x00));
+        assert!(cpu.c_flag && cpu.h_flag && cpu.z_flag);
+    }
+
+    #[test]
+    fn adc_includes_the_incoming_carry() {
+        let mut cpu = CentralProcessor::new();
+        cpu.a = Byte(0xFF);
+        cpu.c_flag = true;
+        cpu.adc(Byte(0x00)); // 0xFF + 0 + 1 = 0x100
+        assert_eq!(cpu.a, Byte(0x00));
+        assert!(cpu.c_flag && cpu.h_flag && cpu.z_flag && !cpu.n_flag);
+    }
+
+    #[test]
+    fn sub_sets_borrow_flags() {
+        let mut cpu = CentralProcessor::new();
+        cpu.a = Byte(0x10);
+        cpu.sub(Byte(0x01)); // 0x0F: half-borrow, no borrow
+        assert_eq!(cpu.a, Byte(0x0F));
+        assert!(cpu.h_flag && !cpu.c_flag && cpu.n_flag);
+
+        cpu.a = Byte(0xFF);
+        cpu.sub(Byte(0x01)); // 0xFE: no borrow (the old carry helper set it here)
+        assert_eq!(cpu.a, Byte(0xFE));
+        assert!(!cpu.c_flag && !cpu.h_flag);
+
+        cpu.a = Byte(0x00);
+        cpu.sub(Byte(0x01)); // wraps: borrow + half-borrow
+        assert_eq!(cpu.a, Byte(0xFF));
+        assert!(cpu.c_flag && cpu.h_flag);
+    }
+
+    #[test]
+    fn sbc_includes_the_incoming_borrow() {
+        let mut cpu = CentralProcessor::new();
+        cpu.a = Byte(0x00);
+        cpu.c_flag = true;
+        cpu.sbc(Byte(0x00)); // 0 - 0 - 1 = 0xFF
+        assert_eq!(cpu.a, Byte(0xFF));
+        assert!(cpu.c_flag && cpu.h_flag && cpu.n_flag && !cpu.z_flag);
     }
 
     #[test]

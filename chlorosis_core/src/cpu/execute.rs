@@ -1471,7 +1471,6 @@ impl Device {
             }
             // 0xFF
             RST_7 => {
-                println!("RST_7 => may indicate 0xFF bug");
                 self.push_address(self.cpu.pc);
                 self.cpu.pc = RST_7_ADDRESS.into();
                 self.cpu.cost = 4;
