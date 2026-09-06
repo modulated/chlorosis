@@ -18,6 +18,11 @@ pub const TICKS_PER_FRAME: u32 = 70_224;
 /// 4.194304 MHz / 70224 ticks == 59.7275 Hz.
 const FRAME_TIME: Duration = Duration::from_nanos(16_742_706);
 
+/// First audio register, `NR10`.
+const AUDIO_REG_START: u16 = 0xFF10;
+/// Number of audio registers, `0xFF10..=0xFF3F` (control regs plus wave RAM).
+const AUDIO_REG_COUNT: usize = 0x30;
+
 /// How far behind real time the emulator may fall before it stops trying to
 /// catch up. Without this a long host stall (a dragged window, a swapped out
 /// page) leaves a debt the emulator repays by sprinting through several frames
@@ -43,6 +48,11 @@ pub struct Device {
     wram_bank: Byte,
     infrared: Infrared,
     timer: Timer,
+    /// Raw store for the audio registers `0xFF10-0xFF3F`. Audio is out of scope
+    /// for now, but ROMs write these within the first few hundred instructions
+    /// and read some of them back, so the values are kept rather than acted on.
+    /// Once a real `AudioProcessor` exists this store moves into it.
+    audio_regs: [Byte; AUDIO_REG_COUNT],
     state: EmulatorState,
     rom_path: Option<PathBuf>,
 }
@@ -75,6 +85,7 @@ impl Device {
             joypad: Joypad::default(),
             infrared: Infrared::default(),
             timer: Timer::default(),
+            audio_regs: [Byte(0); AUDIO_REG_COUNT],
             rom: vec![Byte(0); ROM_BANK_SIZE * 2], // TODO: need better way of determing ROM vec size
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
@@ -347,14 +358,14 @@ impl Device {
             0xFF04..=0xFF07 => self.timer.read(address), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF0F => self.interrupt,     // Interrupt
-            0xFF10..=0xFF3F => unimplemented!("Audio"), // Audio
+            0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize], // Audio
             0xFF40..=0xFF55 => self.ppu.read_io(address), // PPU
             0xFF56 => self.infrared.read(), // Infrared Com Port
             0xFF57..=0xFF6F => self.ppu.read_io(address), // PPU
             0xFF70 => self.wram_bank,     // WRAM BANK
             0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF76 => unimplemented!("Audio"), // Audio 1&2
-            0xFF77 => unimplemented!("Audio"), // Audio 3&4
+            0xFF76 => Byte(0),            // Audio PCM12 (read-only, no audio yet)
+            0xFF77 => Byte(0),            // Audio PCM34 (read-only, no audio yet)
             0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)],
@@ -388,14 +399,14 @@ impl Device {
             0xFF04..=0xFF07 => self.timer.write(address, value), // Timers
             0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF0F => self.interrupt = value,   // Interrupt
-            0xFF10..=0xFF3F => unimplemented!("Audio"), // Audio
+            0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize] = value, // Audio
             0xFF40..=0xFF55 => self.ppu.write_io(address, value), // PPU
             0xFF56 => self.infrared.write(value), // Infrared Com Port
             0xFF57..=0xFF6F => self.ppu.write_io(address, value), // PPU
             0xFF70 => self.wram_bank = value,   // WRAM BANK
             0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF76 => unimplemented!("Audio"),  // Audio channels 1 & 2,
-            0xFF77 => unimplemented!("Audio"),  // Audio channels 3 & 4,
+            0xFF76 => {}                        // Audio PCM12 (read-only)
+            0xFF77 => {}                        // Audio PCM34 (read-only)
             0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)] = value,

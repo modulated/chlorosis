@@ -29,16 +29,25 @@ pub struct CentralProcessor {
 }
 
 impl Default for CentralProcessor {
+    /// Registers as the CGB boot ROM leaves them, so a cartridge can run without
+    /// the boot ROM being executed. `PC` already starts at `0x0100` - the first
+    /// cartridge instruction - which is only correct if the rest of the state is
+    /// post-boot too, so the remaining registers are filled in to match.
+    ///
+    /// These are the CGB values (`AF=0x1180 BC=0x0000 DE=0xFF56 HL=0x000D`); a
+    /// ROM detects CGB by finding `0x11` in `A`. Running the real boot ROM and
+    /// selecting DMG values for DMG-only carts are follow-ups (see the MVP
+    /// checklist).
     fn default() -> Self {
         Self {
-            a: Byte(0x00),
+            a: Byte(0x11),
             b: Byte(0x00),
             c: Byte(0x00),
-            d: Byte(0x00),
-            e: Byte(0x00),
+            d: Byte(0xFF),
+            e: Byte(0x56),
             h: Byte(0x00),
-            l: Byte(0x00),
-            z_flag: false,
+            l: Byte(0x0D),
+            z_flag: true,
             n_flag: false,
             h_flag: false,
             c_flag: false,

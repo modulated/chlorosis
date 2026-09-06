@@ -60,14 +60,18 @@ impl Default for PixelProcessor {
             frame_dot_counter: 0,
             bg_fifo: VecDeque::with_capacity(16),
             obj_fifo: VecDeque::with_capacity(16),
-            LCDC: Default::default(),
+            // Post-boot register state, so the LCD is already on when a
+            // cartridge starts (see CentralProcessor::default). LCDC = 0x91:
+            // LCD enabled (bit 7), BG tile data at 0x8000 (bit 4), BG enabled
+            // (bit 0). BGP = 0xFC is the boot ROM's greyscale palette.
+            LCDC: Byte(0x91),
             STAT: Default::default(),
             SCY: Default::default(),
             SCX: Default::default(),
             LY: Default::default(),
             LYC: Default::default(),
             DMA: Default::default(),
-            BGP: Default::default(),
+            BGP: Byte(0xFC),
             OBP0: Default::default(),
             OBP1: Default::default(),
             WY: Default::default(),
@@ -145,43 +149,55 @@ impl PixelProcessor {
         }
     }
 
+    /// Whether the CPU can currently reach VRAM.
+    ///
+    /// The PPU locks VRAM only during pixel transfer (mode 3, `Draw`); it is
+    /// open in HBlank, VBlank, and OAM scan. A locked access is not an error on
+    /// real hardware - the read returns `0xFF` and the write is dropped - so it
+    /// must never panic here, or every ROM that touches VRAM near a scanline
+    /// boundary would take the emulation thread down.
+    fn vram_accessible(&self) -> bool {
+        !matches!(self.read_stat_mode(), StatusMode::Draw)
+    }
+
+    /// Whether the CPU can currently reach OAM. Locked during both OAM scan
+    /// (mode 2) and pixel transfer (mode 3); open otherwise.
+    fn oam_accessible(&self) -> bool {
+        matches!(
+            self.read_stat_mode(),
+            StatusMode::HBlank | StatusMode::VBlank
+        )
+    }
+
+    const fn vram_index(&self, address: Address) -> usize {
+        address.0 as usize + (VRAM_BANK_SIZE * self.vram_bank.0 as usize) - VRAM_START as usize
+    }
+
     pub fn read_vram(&self, address: Address) -> Byte {
-        if !self.read_lcdc_enabled() {
-            self.vram[address.0 as usize + (VRAM_BANK_SIZE * self.vram_bank.0 as usize)
-                - VRAM_START as usize]
+        if self.vram_accessible() {
+            self.vram[self.vram_index(address)]
         } else {
-            panic!("cannot access VRAM while LCD enabled")
+            Byte(0xFF)
         }
     }
 
     pub fn write_vram(&mut self, address: Address, value: Byte) {
-        if self.read_stat_mode() == StatusMode::VBlank
-            || self.read_stat_mode() == StatusMode::HBlank
-        {
-            self.vram[address.0 as usize + (VRAM_BANK_SIZE * self.vram_bank.0 as usize)
-                - VRAM_START as usize] = value;
-        } else {
-            panic!("Attempted VRAM write during render")
+        if self.vram_accessible() {
+            self.vram[self.vram_index(address)] = value;
         }
     }
 
     pub fn read_oam(&self, address: Address) -> Byte {
-        if self.read_stat_mode() == StatusMode::VBlank
-            || self.read_stat_mode() == StatusMode::HBlank
-        {
+        if self.oam_accessible() {
             self.oam[address.0 as usize - OAM_START as usize]
         } else {
-            panic!("Attempted OAM access during render")
+            Byte(0xFF)
         }
     }
 
     pub fn write_oam(&mut self, address: Address, value: Byte) {
-        if self.read_stat_mode() == StatusMode::VBlank
-            || self.read_stat_mode() == StatusMode::HBlank
-        {
+        if self.oam_accessible() {
             self.oam[address.0 as usize - OAM_START as usize] = value;
-        } else {
-            panic!("Attempted OAM write during render time")
         }
     }
 
@@ -244,5 +260,57 @@ impl PixelProcessor {
             out.push(self.get_tile(index, mode))
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{registers::StatusMode, PixelProcessor};
+    use crate::{Address, Byte};
+
+    const VRAM_ADDR: Address = Address(0x8000);
+    const OAM_ADDR: Address = Address(0xFE00);
+
+    #[test]
+    fn vram_and_oam_are_open_outside_render() {
+        let mut ppu = PixelProcessor::default();
+        ppu.write_stat_mode(StatusMode::HBlank);
+
+        ppu.write_vram(VRAM_ADDR, Byte(0x42));
+        ppu.write_oam(OAM_ADDR, Byte(0x24));
+
+        assert_eq!(ppu.read_vram(VRAM_ADDR), Byte(0x42));
+        assert_eq!(ppu.read_oam(OAM_ADDR), Byte(0x24));
+    }
+
+    #[test]
+    fn vram_locked_during_draw_reads_ff_and_drops_writes() {
+        let mut ppu = PixelProcessor::default();
+        ppu.write_stat_mode(StatusMode::HBlank);
+        ppu.write_vram(VRAM_ADDR, Byte(0x42));
+
+        // A blocked access must not panic - it is routine on real hardware.
+        ppu.write_stat_mode(StatusMode::Draw);
+        ppu.write_vram(VRAM_ADDR, Byte(0xFF)); // dropped
+        assert_eq!(ppu.read_vram(VRAM_ADDR), Byte(0xFF)); // open bus, not the byte
+
+        ppu.write_stat_mode(StatusMode::HBlank);
+        assert_eq!(ppu.read_vram(VRAM_ADDR), Byte(0x42)); // write really was dropped
+    }
+
+    #[test]
+    fn oam_locked_during_scan_and_draw() {
+        let mut ppu = PixelProcessor::default();
+        ppu.write_stat_mode(StatusMode::HBlank);
+        ppu.write_oam(OAM_ADDR, Byte(0x24));
+
+        for blocked in [StatusMode::OAM, StatusMode::Draw] {
+            ppu.write_stat_mode(blocked);
+            ppu.write_oam(OAM_ADDR, Byte(0xFF)); // dropped
+            assert_eq!(ppu.read_oam(OAM_ADDR), Byte(0xFF)); // open bus
+        }
+
+        ppu.write_stat_mode(StatusMode::HBlank);
+        assert_eq!(ppu.read_oam(OAM_ADDR), Byte(0x24));
     }
 }
