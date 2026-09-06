@@ -41,7 +41,7 @@ impl Device {
             0x1A => LD_A_aDE,
             0x1B => DEC_DE,
             0x1C => INC_E,
-            0x1D => DEC_D,
+            0x1D => DEC_E,
             0x1E => LD_E_d8(self.consume_byte()),
             0x1F => RRA,
             // Row 1

@@ -109,12 +109,19 @@ impl Device {
             // Row 1
             // 0x10
             STOP(_) => {
-                // TODO: Implement STOP operation
-                // IF all IE flags reset AND input P10 to P13 are LOW
-                // STOP SYSTEM CLOCK and OSCILLATOR CIRCUIT and LCD controller
-                // Cancelled by RESET signal
-
-                panic!("Unimplemented STOP");
+                // On CGB, STOP with the speed switch armed (KEY1 bit 0) flips
+                // the CPU clock speed. Double speed is not modelled, but the
+                // register is honoured - bit 7 reports the current speed and the
+                // armed bit clears - so ROMs that perform and verify the switch
+                // proceed. Otherwise STOP is a no-op here rather than a panic.
+                let key1 = self.read(Address(0xFF4D));
+                if key1.is_bit_set(0) {
+                    let mut updated = key1;
+                    updated.write_bit(7, !key1.is_bit_set(7));
+                    updated.write_bit(0, false);
+                    self.write(Address(0xFF4D), updated);
+                }
+                self.cpu.cost = 1;
             }
             // 0x11
             LD_DE_d16(addr) => {
@@ -150,9 +157,11 @@ impl Device {
             // 0x17
             RLA => {
                 let prev = self.cpu.c_flag;
+                self.cpu.clear_flags();
                 self.cpu.c_flag = self.cpu.a.is_bit_set(7);
                 let mut val = self.cpu.a << 1;
                 val.write_bit(0, prev);
+                self.cpu.a = val;
                 self.cpu.cost = 1;
             }
             // 0x18
@@ -195,10 +204,14 @@ impl Device {
             }
             // 0x1F
             RRA => {
+                // The rotated value was computed but never written back to A,
+                // and Z/N/H were left untouched (RRA clears all three).
                 let prev = self.cpu.c_flag;
+                self.cpu.clear_flags();
                 self.cpu.c_flag = self.cpu.a.is_bit_set(0);
                 let mut val = self.cpu.a >> 1;
                 val.write_bit(7, prev);
+                self.cpu.a = val;
                 self.cpu.cost = 1;
             }
             // Row 1
@@ -1159,11 +1172,8 @@ impl Device {
             }
             // 0xC6
             ADD_A_d8(val) => {
-                self.cpu.check_carry_add_byte(self.cpu.a, val);
-                self.cpu.check_half_carry_add_byte(self.cpu.a, val);
-                self.cpu.n_flag = false;
-                self.cpu.a = val;
-                self.cpu.check_zero(self.cpu.a);
+                // This set A to the operand instead of A + operand.
+                self.cpu.add(val);
                 self.cpu.cost = 2;
             }
             // 0xC7
