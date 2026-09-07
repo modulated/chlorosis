@@ -195,6 +195,11 @@ impl Ui {
                 .push_str(&format!(" - {percent:.0}% of real hardware"));
         }
 
+        // A window title cannot contain NUL or other control bytes - minifb
+        // builds a CString from it and panics otherwise - and cartridge titles
+        // are attacker-controlled bytes, so strip anything unprintable.
+        self.title.retain(|c| !c.is_control());
+
         // set_title talks to the window system, so only pay for it on a change.
         if self.title != self.shown_title {
             window.set_title(&self.title);

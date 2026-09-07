@@ -44,7 +44,11 @@ impl CartrigeHeader {
     }
 
     pub fn title(&self) -> &str {
-        self.title.trim_end_matches(['\0', ' '])
+        // The 16-byte title field is NUL-padded, and on CGB carts it overlaps
+        // the manufacturer code, so bytes can follow the terminator (e.g.
+        // "PM_CRYSTAL\0BYTE"). Take only up to the first NUL, then trim spaces.
+        let end = self.title.find('\0').unwrap_or(self.title.len());
+        self.title[..end].trim_end_matches(' ')
     }
 
     /// Total ROM size in bytes as declared by the header.
@@ -897,6 +901,26 @@ mod tests {
         assert_eq!(get_rom_size(0x01), 0x10000);
         assert_eq!(get_rom_size(0x05), 0x100000);
         assert_eq!(get_rom_size(0x54), 0x180000);
+    }
+
+    #[test]
+    fn title_stops_at_the_first_nul() {
+        use super::CartrigeHeader;
+        use crate::Byte;
+
+        // A CGB header where the title overlaps the manufacturer code, so bytes
+        // follow the terminator - as in Pokemon Crystal ("PM_CRYSTAL\0BYTE").
+        let mut raw = [Byte(0); 0x50];
+        for (i, b) in b"PM_CRYSTAL\0BYTE".iter().enumerate() {
+            raw[0x33 + i] = Byte(*b);
+        }
+        // Keep the size/type codes valid so parsing does not panic.
+        raw[0x47] = Byte(0x00); // MBC: ROM ONLY
+        raw[0x48] = Byte(0x00); // ROM size
+        raw[0x49] = Byte(0x00); // RAM size
+
+        let header = CartrigeHeader::from_bytes(&raw);
+        assert_eq!(header.title(), "PM_CRYSTAL");
     }
 
     #[test]
