@@ -209,6 +209,7 @@ impl Device {
                 pending |= Interrupts::Timer;
             }
             self.audio.tick();
+            self.mbc.tick();
             self.request_interrupts(pending);
 
             // The CPU runs on the machine clock: one step every fourth tick.
@@ -481,10 +482,12 @@ impl Device {
 
         // Size external RAM from the header and build the controller named by
         // the cartridge-type byte, so the switchable ROM/RAM windows map onto
-        // the real image.
-        let ram_size = (header.ram_size() as usize).next_multiple_of(RAM_BANK_SIZE);
-        self.eram = vec![Byte(0); ram_size];
+        // the real image. MBC2 carries a fixed built-in RAM the header does not
+        // declare, so its size is forced.
         let cartridge_type = self.rom[0x0147].0;
+        let ram_size = Mbc::forced_ram_len(cartridge_type)
+            .unwrap_or_else(|| (header.ram_size() as usize).next_multiple_of(RAM_BANK_SIZE));
+        self.eram = vec![Byte(0); ram_size];
         self.mbc = Mbc::new(
             cartridge_type,
             self.rom.len() / ROM_BANK_SIZE,
@@ -710,13 +713,10 @@ impl Device {
             // selects the switchable bank.
             ROM_0_START..=ROM_1_END => self.read_rom(self.mbc.rom_offset(address.0)),
             VRAM_START..=VRAM_END => self.ppu.read_vram(address),
-            // External cartridge RAM, if the MBC has it mapped and enabled;
-            // otherwise the bus floats to 0xFF.
-            ERAM_START..=ERAM_END => self
-                .mbc
-                .ram_offset(address.0)
-                .and_then(|o| self.eram.get(o).copied())
-                .unwrap_or(Byte(0xFF)),
+            // External cartridge RAM / MBC2 half-RAM / MBC3 RTC. The controller
+            // decides what the window exposes; a disabled or absent one floats
+            // to 0xFF.
+            ERAM_START..=ERAM_END => self.mbc.read_ram(address.0, &self.eram),
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)],
             WRAM_1_START..=WRAM_1_END => self.wram[self.wram_1_index(address)],
             // Echo RAM mirrors WRAM 0x2000 below it.
@@ -753,14 +753,9 @@ impl Device {
             VRAM_START..=VRAM_END => {
                 self.ppu.write_vram(address, value);
             }
-            // External cartridge RAM, if mapped and enabled; dropped otherwise.
-            ERAM_START..=ERAM_END => {
-                if let Some(offset) = self.mbc.ram_offset(address.0)
-                    && let Some(cell) = self.eram.get_mut(offset)
-                {
-                    *cell = value;
-                }
-            }
+            // External cartridge RAM / MBC2 half-RAM / MBC3 RTC; the controller
+            // routes and masks the write, and drops it when RAM is disabled.
+            ERAM_START..=ERAM_END => self.mbc.write_ram(address.0, value.0, &mut self.eram),
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)] = value,
             WRAM_1_START..=WRAM_1_END => {
                 let index = self.wram_1_index(address);

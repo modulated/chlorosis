@@ -20,13 +20,14 @@ long before the renderer is even reached. Suggested order is bottom of this file
   computes `bank * 0x4000 + (addr - 0x4000)` in `usize` via `read_rom`, so it
   reaches past 64 KB; the old `Address` (u16) math wrapped. Out-of-range offsets
   return open-bus `0xFF`. — `device.rs::read`
-- [x] **MBC wired into `read`/`write`.** A new `mbc::Mbc` (ROM-only, MBC1, MBC3,
-  MBC5) maps the switchable ROM/RAM windows onto the flat image and absorbs the
-  bank-select writes; `Device` builds it from the header's cartridge-type byte
-  and sizes external RAM from the header. Banked ROMs larger than 32 KB now run
-  in full. The old broken, unwired `mbc1/2/3/5.rs` are replaced. **MBC2 and
-  MBC3's RTC are not modelled** (MBC2 falls back to MBC1 behaviour). — `mbc/mod.rs`,
-  `device.rs`
+- [x] **MBC wired into `read`/`write`.** A new `mbc::Mbc` (ROM-only, MBC1, MBC2,
+  MBC3, MBC5) maps the switchable ROM/RAM windows onto the flat image and absorbs
+  the bank-select writes; `Device` builds it from the header's cartridge-type
+  byte and sizes external RAM from the header. Banked ROMs larger than 32 KB now
+  run in full. MBC2's 4-bit ROM bank register (address bit 8) and built-in
+  512×4-bit RAM are modelled, and MBC3's real-time clock ticks on emulated
+  cycles with latch and halt. RAM/RTC access routes through
+  `Mbc::read_ram`/`write_ram`. — `mbc/mod.rs`, `device.rs`
 
 ## 2. Stop the memory map killing the core thread
 
@@ -156,13 +157,14 @@ remains is breadth and accuracy:
   sprites, and CGB colour (verified against `cgb-acid2`) are done.
 - **PPU/timing accuracy** — Blargg's timing tests (`instr_timing`,
   `mem_timing`), and CGB double-speed.
-- **Accuracy leftovers** — MBC2 / MBC3-RTC, and audio *accuracy* (the channels
-  play, but timing is not cycle-exact and the DMG/CGB power-off quirks are
-  approximated).
+- **Accuracy leftovers** — audio *accuracy* (the channels play, but timing is
+  not cycle-exact and the DMG/CGB power-off quirks are approximated), and
+  cycle-exact PPU/instruction timing. The MBC3 RTC keeps its state in save
+  states but is not yet appended to the `.sav` file.
 
 Since this list was written, the window layer, the CGB colour renderer, the
 tile-map range fix, echo RAM, the IO-hole faults, the Joypad interrupt, the
-IME-disabled HALT bug, a full **APU with cpal output**, **save states** (with
-slot/quick keys and a validated file format), and **battery-backed `.sav`
-persistence** have all landed — the last two were originally out of scope for
-the MVP.
+IME-disabled HALT bug, MBC2 and the MBC3 RTC, a full **APU with cpal output**,
+**save states** (with slot/quick keys and a validated file format), and
+**battery-backed `.sav` persistence** have all landed — the last two were
+originally out of scope for the MVP.
