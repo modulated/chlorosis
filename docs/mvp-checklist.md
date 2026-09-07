@@ -53,8 +53,10 @@ long before the renderer is even reached. Suggested order is bottom of this file
 - [x] **`HALT` and `RETI`** implemented (they were `unimplemented!()`; HALT is in
   every main loop, RETI ends every handler). HALT idles until an enabled
   interrupt is pending; RETI pops PC and re-enables IME. `DAA` is now
-  implemented too; the IME-disabled HALT bug is the only leftover. —
-  `cpu/execute.rs`
+  implemented too, and so is the IME-disabled HALT bug: a `HALT` with IME
+  clear and an interrupt already pending no longer halts - the following opcode
+  byte is fetched twice (PC fails to advance once). — `cpu/execute.rs`,
+  `cpu/fetch.rs`
 - [x] **Opcode correctness pass.** All eleven Blargg `cpu_instrs` tests pass,
   driven by a gameboy-doctor-style trace diff against a reference log. Fixed:
   `to_signed` (every relative jump), 8/16-bit arithmetic wraparound, `DEC DE`,
@@ -116,9 +118,10 @@ long before the renderer is even reached. Suggested order is bottom of this file
 - [x] **Joypad polarity fixed.** Reads are now active-low - a bit is 0 when
   pressed or its group selected, 1 otherwise, with unused bits 6-7 high and the
   idle lower nibble `0xF`. It used to report pressed = 1 and treat a set select
-  bit as selected, so games saw every button held. **Joypad interrupt on
-  key-down is still not raised** (fine for the many games that poll). —
-  `joypad.rs`
+  bit as selected, so games saw every button held. The Joypad interrupt is now
+  raised too: pressing a button on a selected line (or selecting a group that
+  holds one) drives a P10-P13 line high to low and requests it. — `joypad.rs`,
+  `device.rs`
 
 ## 8. Verification
 
@@ -153,12 +156,13 @@ remains is breadth and accuracy:
   sprites, and CGB colour (verified against `cgb-acid2`) are done.
 - **PPU/timing accuracy** — Blargg's timing tests (`instr_timing`,
   `mem_timing`), and CGB double-speed.
-- **Accuracy leftovers** — the joypad interrupt, the IME-disabled HALT bug,
-  MBC2 / MBC3-RTC, and audio *accuracy* (the channels play, but timing is not
-  cycle-exact and the DMG/CGB power-off quirks are approximated).
+- **Accuracy leftovers** — MBC2 / MBC3-RTC, and audio *accuracy* (the channels
+  play, but timing is not cycle-exact and the DMG/CGB power-off quirks are
+  approximated).
 
 Since this list was written, the window layer, the CGB colour renderer, the
-tile-map range fix, echo RAM, the IO-hole faults, a full **APU with cpal
-output**, **save states** (with slot/quick keys and a validated file format),
-and **battery-backed `.sav` persistence** have all landed — the last two were
-originally out of scope for the MVP.
+tile-map range fix, echo RAM, the IO-hole faults, the Joypad interrupt, the
+IME-disabled HALT bug, a full **APU with cpal output**, **save states** (with
+slot/quick keys and a validated file format), and **battery-backed `.sav`
+persistence** have all landed — the last two were originally out of scope for
+the MVP.

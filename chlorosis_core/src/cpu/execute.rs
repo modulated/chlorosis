@@ -732,10 +732,17 @@ impl Device {
             }
             // 0x76
             HALT => {
-                // Idle until an enabled interrupt is pending; step_cpu wakes us
-                // and, if IME is set, services it. The IME-disabled "HALT bug"
-                // (PC failing to advance) is not reproduced yet.
-                self.cpu.halted = true;
+                // Normally idle until an enabled interrupt is pending; step_cpu
+                // wakes us and, if IME is set, services it. But HALT with IME
+                // clear *and* an interrupt already pending hits the HALT bug: the
+                // CPU does not halt, and the next opcode byte is fetched twice
+                // (PC fails to advance once) - handled in fetch_instruction.
+                let pending = self.has_pending_interrupt();
+                if !self.cpu.interupt_master_enable && pending {
+                    self.cpu.halt_bug = true;
+                } else {
+                    self.cpu.halted = true;
+                }
                 self.cpu.cost = 1;
             }
             // 0x77

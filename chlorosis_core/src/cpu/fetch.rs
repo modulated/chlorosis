@@ -7,6 +7,15 @@ impl Device {
         use Opcode::*;
         let op = self.consume_byte();
 
+        // HALT bug: the opcode byte following the faulty HALT is read without
+        // advancing PC, so it is fetched again as the next instruction (and any
+        // operands of this one read from one byte early). Undo just the opcode
+        // increment; operand reads below then proceed from there.
+        if self.cpu.halt_bug {
+            self.cpu.halt_bug = false;
+            self.cpu.pc -= 1;
+        }
+
         match op.0 {
             // Row 0
             0x00 => NOP,

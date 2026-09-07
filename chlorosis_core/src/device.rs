@@ -226,6 +226,12 @@ impl Device {
         self.interrupt_flag.0 |= ints.bits();
     }
 
+    /// Whether any interrupt is both requested (IF) and enabled (IE). This is
+    /// what ends HALT and, with IME clear at a `HALT`, triggers the HALT bug.
+    pub(crate) const fn has_pending_interrupt(&self) -> bool {
+        self.interrupt_flag.0 & self.interrupt_enable.0 & 0x1F != 0
+    }
+
     /// Service the highest-priority pending, enabled interrupt if IME is set,
     /// and wake the CPU from HALT for any pending, enabled interrupt regardless
     /// of IME. Returns `true` if an interrupt was dispatched.
@@ -766,7 +772,13 @@ impl Device {
             DEADZONE_1_START..=DEADZONE_1_END => {} // unusable region
 
             // IO_START
-            0xFF00 => self.joypad.write(value), // Joypad
+            0xFF00 => {
+                // Selecting a group that holds a pressed button also drops a
+                // line and raises the Joypad interrupt.
+                if self.joypad.write(value) {
+                    self.request_interrupts(Interrupts::Joypad);
+                }
+            }
             0xFF01..=0xFF02 => self.serial.write(address, value), // Serial
             0xFF04..=0xFF07 => self.timer.write(address, value), // Timers
             0xFF0F => self.interrupt_flag = Byte(value.0 & 0x1F), // IF
@@ -827,8 +839,14 @@ impl Device {
     }
 
     fn handle_keydown(&mut self, keys: Vec<KeyCode>) {
+        let mut edge = false;
         for b in keys {
-            self.joypad.press(b);
+            edge |= self.joypad.press(b);
+        }
+        // A button in a selected group falling from high to low raises the
+        // Joypad interrupt, which is also what wakes the CPU from STOP.
+        if edge {
+            self.request_interrupts(Interrupts::Joypad);
         }
     }
 
@@ -1349,6 +1367,72 @@ mod tests {
         assert_eq!(fresh.read(Address(0xA042)), Byte(0x77), "save RAM restored");
 
         std::fs::remove_file(&sav).ok();
+    }
+
+    #[test]
+    fn pressing_a_selected_button_requests_the_joypad_interrupt() {
+        use crate::KeyCode;
+        let mut dev = Device::new();
+        dev.write(Address(0xFF00), Byte(0b0001_0000)); // select the action group
+
+        dev.handle_keydown(vec![KeyCode::A]);
+        assert_eq!(
+            dev.read(Address(0xFF0F)).0 & Interrupts::Joypad.bits(),
+            Interrupts::Joypad.bits(),
+            "a selected press raises the Joypad interrupt",
+        );
+    }
+
+    #[test]
+    fn pressing_an_unselected_button_raises_no_interrupt() {
+        use crate::KeyCode;
+        let mut dev = Device::new();
+        dev.write(Address(0xFF00), Byte(0b0001_0000)); // action group selected
+
+        // A direction press is not on a selected line: no interrupt.
+        dev.handle_keydown(vec![KeyCode::Up]);
+        assert_eq!(dev.read(Address(0xFF0F)).0 & Interrupts::Joypad.bits(), 0);
+    }
+
+    #[test]
+    fn halt_bug_executes_the_following_instruction_twice() {
+        let mut dev = Device::new();
+        // HALT, INC A, then NOPs, in writable WRAM.
+        dev.cpu.pc = Address(0xC000);
+        dev.write(Address(0xC000), Byte(0x76)); // HALT
+        dev.write(Address(0xC001), Byte(0x3C)); // INC A
+        dev.write(Address(0xC002), Byte(0x00)); // NOP
+        dev.cpu.a = Byte(0);
+
+        // The bug condition: IME clear with an interrupt already pending.
+        dev.cpu.interupt_master_enable = false;
+        dev.write(Address(0xFFFF), Byte(0x01)); // enable VBlank
+        dev.request_interrupts(Interrupts::VBlank);
+
+        // Step enough machine cycles to run HALT and reach the NOP.
+        for _ in 0..12 {
+            dev.step_cpu();
+        }
+
+        assert_eq!(dev.cpu.a, Byte(2), "INC A ran twice from the doubled fetch");
+        assert!(!dev.cpu.halted, "the HALT bug does not halt the CPU");
+    }
+
+    #[test]
+    fn halt_without_the_bug_condition_halts_normally() {
+        let mut dev = Device::new();
+        dev.cpu.pc = Address(0xC000);
+        dev.write(Address(0xC000), Byte(0x76)); // HALT
+        dev.cpu.a = Byte(0);
+        // IME clear but nothing pending: a plain HALT, no bug.
+        dev.cpu.interupt_master_enable = false;
+
+        dev.step_cpu(); // fetch + execute HALT
+        dev.step_cpu(); // consume its one cycle
+        dev.step_cpu(); // at the boundary: still halted, nothing pending
+
+        assert!(dev.cpu.halted, "HALT idles the CPU when no interrupt is pending");
+        assert!(!dev.cpu.halt_bug);
     }
 
     #[test]

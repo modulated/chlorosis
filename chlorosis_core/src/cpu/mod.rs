@@ -29,6 +29,9 @@ pub struct CentralProcessor {
     pub interupt_master_enable: bool,
     /// Set by `HALT`; the CPU idles until an enabled interrupt is pending.
     pub halted: bool,
+    /// Set when `HALT` is executed with interrupts disabled but one already
+    /// pending (the "HALT bug"): the next opcode byte is fetched twice.
+    pub halt_bug: bool,
     pub cost: u8,
 }
 
@@ -60,7 +63,7 @@ impl Default for CentralProcessor {
             cost: 0,
             interupt_master_enable: false,
             halted: false,
-            // cycle_count: 0,
+            halt_bug: false,
         }
     }
 }
