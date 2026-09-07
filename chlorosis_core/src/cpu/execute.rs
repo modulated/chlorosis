@@ -1143,7 +1143,8 @@ impl Device {
             }
             // 0xC2
             JP_NZ_a16(addr) => {
-                if self.cpu.z_flag {
+                // "NZ" jumps when Z is clear - the condition was inverted.
+                if !self.cpu.z_flag {
                     self.cpu.pc = addr;
                     self.cpu.cost = 4;
                 } else {
@@ -1290,7 +1291,8 @@ impl Device {
             // 0xD8
             RET_C => {
                 if self.cpu.c_flag {
-                    self.cpu.sp = self.pop_address();
+                    // RET pops the return address into PC, not SP.
+                    self.cpu.pc = self.pop_address();
                     self.cpu.cost = 5;
                 } else {
                     self.cpu.cost = 2;
@@ -1377,9 +1379,17 @@ impl Device {
             }
             // 0xE8
             ADD_SP_s8(signed) => {
+                // This wrote the result to PC instead of SP (a wild jump) and
+                // never set a cost. It adds the signed offset to SP; H and C
+                // come from the low byte, per the hardware quirk.
+                let sp = self.cpu.sp.0;
+                let offset = signed.0 as i16 as u16; // sign-extended
+                let e = signed.0 as u8 as u16; // byte value for the flag maths
                 self.cpu.clear_flags();
-                self.cpu.check_carry_signed_address(self.cpu.sp, signed);
-                self.cpu.pc = Address(((self.cpu.sp.0 as i32) + (signed.0 as i32)) as u16);
+                self.cpu.h_flag = (sp & 0x0F) + (e & 0x0F) > 0x0F;
+                self.cpu.c_flag = (sp & 0xFF) + (e & 0xFF) > 0xFF;
+                self.cpu.sp = Address(sp.wrapping_add(offset));
+                self.cpu.cost = 4;
             }
             // 0xE9
             JP_HL => {
@@ -1449,10 +1459,14 @@ impl Device {
             }
             // 0xF8
             LD_HL_SP_s8(signed) => {
-                let addr = Address(((self.cpu.sp.0 as i32) + (signed.0 as i32)) as u16);
+                // H and C come from the low byte, like ADD SP,e8.
+                let sp = self.cpu.sp.0;
+                let offset = signed.0 as i16 as u16;
+                let e = signed.0 as u8 as u16;
                 self.cpu.clear_flags();
-                self.cpu.check_carry_signed_address(self.cpu.sp, signed);
-                self.cpu.write_hl(addr);
+                self.cpu.h_flag = (sp & 0x0F) + (e & 0x0F) > 0x0F;
+                self.cpu.c_flag = (sp & 0xFF) + (e & 0xFF) > 0xFF;
+                self.cpu.write_hl(Address(sp.wrapping_add(offset)));
                 self.cpu.cost = 3;
             }
             // 0xF9

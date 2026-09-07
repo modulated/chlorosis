@@ -165,11 +165,9 @@ impl Device {
         }
 
         let op = self.fetch_instruction();
+        // `execute` sets the instruction's full machine-cycle cost and then
+        // consumes the first cycle itself, so nothing more is decremented here.
         self.execute(op);
-
-        // `execute` records the instruction's full duration in machine cycles;
-        // this fetch/execute counts as the first of them.
-        self.cpu.cost = self.cpu.cost.saturating_sub(1);
     }
 
     pub fn consume_byte(&mut self) -> Byte {
