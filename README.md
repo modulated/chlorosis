@@ -36,6 +36,19 @@ that RAM to a `<rom>.sav` file automatically: it is written when the emulator
 exits and when the cartridge is reset or swapped, and read back the next time
 the ROM is loaded.
 
+## Audio
+
+All four sound channels are emulated — two square waves (one with a frequency
+sweep), the programmable wave channel, and the noise channel — mixed to stereo
+and played through the host's default output device.
+
+Audio output is behind the `audio` feature, which is **on by default**. On
+Linux it needs the ALSA development headers at build time
+(`libasound2-dev` on Debian/Ubuntu); macOS and Windows need nothing extra. To
+build without sound (and without that dependency), pass
+`--no-default-features`. If no output device is available at runtime the
+emulator just runs silently.
+
 The game bindings are rebindable: copy `debugger/keymap.conf.example` to
 `keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
 a file), and edit it. The format is documented in the example.

@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use crate::{Address, Byte, PixelProcessor};
 
 impl PixelProcessor {
-    pub fn read_io(&self, address: Address) -> Byte {
+    pub const fn read_io(&self, address: Address) -> Byte {
         match address.0 {
             0xFF40 => self.LCDC,
             0xFF41 => self.STAT,
@@ -25,7 +25,9 @@ impl PixelProcessor {
             0xFF6A => self.OCPS,
             0xFF6B => self.read_ocram(),
             0xFF6C => self.OPRI,
-            _ => unreachable!("Cannot read IO register {address}"),
+            // Gaps in the PPU's routed ranges (e.g. 0xFF4C/0xFF4E/0xFF50 and
+            // 0xFF57-0xFF67) are unused registers - open bus, never a fault.
+            _ => Byte(0xFF),
         }
     }
     pub fn write_io(&mut self, address: Address, value: Byte) {
@@ -59,7 +61,8 @@ impl PixelProcessor {
             0xFF6A => self.OCPS = value,
             0xFF6B => self.write_ocpd(value),
             0xFF6C => self.OPRI = value,
-            _ => unreachable!("Cannot write IO register {address}"),
+            // Unused registers in the PPU's routed ranges drop writes.
+            _ => {}
         }
     }
 

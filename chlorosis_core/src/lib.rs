@@ -14,11 +14,14 @@ mod ppu;
 pub mod savestate;
 mod timer;
 mod types;
-pub use audio::AudioProcessor;
+pub use audio::{AudioProcessor, SAMPLE_RATE};
 pub use cpu::CentralProcessor;
 pub use device::{Device, EmulatorState, TICKS_PER_FRAME};
 pub use framebuffer::{Frame, FrameConsumer, FrameProducer, SCREEN_HEIGHT, SCREEN_WIDTH};
-pub use frontend::{channels, CoreChannels, CoreMessage, Event, FrontendChannels, KeyCode};
+pub use frontend::{
+    channels, AudioBuffer, CoreChannels, CoreMessage, Event, FrontendChannels, KeyCode,
+    AUDIO_BUFFER_CAP,
+};
 pub use infrared::Infrared;
 pub use serial::Serial;
 pub use joypad::Joypad;

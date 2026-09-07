@@ -30,11 +30,16 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 2. Stop the memory map killing the core thread
 
-- [x] **Audio registers `0xFF10-0xFF3F` (+ `0xFF76/0xFF77`) `unimplemented!()`
-  on read and write.** ROMs touch these within the first few hundred
-  instructions. Stubbed: writes stored, reads returned. — `device.rs`
-- [ ] **`0xFF50` (boot-ROM disable), `0xFF4C`, `0xFF4E`** route into
-  `ppu.read_io/write_io`, which `unreachable!()`s on anything unlisted.
+- [x] **Audio registers `0xFF10-0xFF3F` (+ `0xFF76/0xFF77`).** Now a full APU:
+  two square channels (one with sweep), the wave channel, and the noise channel,
+  with envelopes, length counters, and a 512 Hz frame sequencer, mixed to stereo
+  and resampled for the host. Played through cpal behind the default `audio`
+  feature. — `audio.rs`, `debugger/src/audio.rs`
+- [x] **`0xFF50` (boot-ROM disable), `0xFF4C`, `0xFF4E`, and the prohibited IO
+  ranges** used to `panic!`/`unreachable!()`. Unlisted registers in the PPU's
+  routed ranges now read open bus and drop writes, and the prohibited holes
+  (`0xFF03`, `0xFF08-0E`, `0xFF71-75`, `0xFF78-7F`) do the same in `device.rs`.
+  A stray IO access can no longer fault the core. — `device.rs`, `ppu/registers.rs`
 - [x] **Echo RAM `0xE000-0xFDFF` and `0xFEA0-0xFEFF`** — echo now mirrors WRAM
   `0x2000` below it (read and write); the unusable region reads `0xFF` and drops
   writes instead of panicking. — `device.rs`
@@ -149,12 +154,11 @@ remains is breadth and accuracy:
 - **PPU/timing accuracy** — Blargg's timing tests (`instr_timing`,
   `mem_timing`), and CGB double-speed.
 - **Accuracy leftovers** — the joypad interrupt, the IME-disabled HALT bug,
-  MBC2 / MBC3-RTC, audio, and the `panic!`ing memory holes still left in the
-  IO map: the boot-ROM/CGB-mode registers `0xFF50`/`0xFF4C`/`0xFF4E` and the
-  prohibited `0xFF03`/`0xFF08-0E`/etc. ranges all reach `ppu::write_io`'s
-  `unreachable!()`. A CGB game writing `0xFF4C` would fault the core.
+  MBC2 / MBC3-RTC, and audio *accuracy* (the channels play, but timing is not
+  cycle-exact and the DMG/CGB power-off quirks are approximated).
 
 Since this list was written, the window layer, the CGB colour renderer, the
-tile-map range fix, echo RAM, **save states** (with slot/quick keys and a
-validated file format), and **battery-backed `.sav` persistence** have all
-landed — the last two were originally out of scope for the MVP.
+tile-map range fix, echo RAM, the IO-hole faults, a full **APU with cpal
+output**, **save states** (with slot/quick keys and a validated file format),
+and **battery-backed `.sav` persistence** have all landed — the last two were
+originally out of scope for the MVP.

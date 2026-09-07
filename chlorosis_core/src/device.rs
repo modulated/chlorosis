@@ -7,7 +7,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 
 use super::{Address, Byte};
 
@@ -23,11 +22,6 @@ pub const TICKS_PER_FRAME: u32 = 70_224;
 
 /// 4.194304 MHz / 70224 ticks == 59.7275 Hz.
 const FRAME_TIME: Duration = Duration::from_nanos(16_742_706);
-
-/// First audio register, `NR10`.
-const AUDIO_REG_START: u16 = 0xFF10;
-/// Number of audio registers, `0xFF10..=0xFF3F` (control regs plus wave RAM).
-const AUDIO_REG_COUNT: usize = 0x30;
 
 /// External-RAM bank size (8 KB), used to size `eram` and count RAM banks.
 const RAM_BANK_SIZE: usize = 0x2000;
@@ -45,12 +39,11 @@ const SPEED_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 pub struct Device {
     pub cpu: CentralProcessor,
     ppu: PixelProcessor,
-    // Audio, the cartridge header, the ROM image, and the ROM's path are not
-    // part of a save state: the ROM is immutable and reloaded from disk, the
-    // header is derived from it, and audio carries no state yet. They are kept
-    // from the live machine across a load rather than serialized.
-    #[serde(skip)]
-    _audio: Option<AudioProcessor>,
+    audio: AudioProcessor,
+    // The cartridge header, the ROM image, and the ROM's path are not part of a
+    // save state: the ROM is immutable and reloaded from disk, and the header is
+    // derived from it. They are kept from the live machine across a load rather
+    // than serialized.
     #[serde(skip)]
     cartrige: Option<CartrigeHeader>,
     joypad: Joypad,
@@ -74,12 +67,6 @@ pub struct Device {
     infrared: Infrared,
     serial: Serial,
     timer: Timer,
-    /// Raw store for the audio registers `0xFF10-0xFF3F`. Audio is out of scope
-    /// for now, but ROMs write these within the first few hundred instructions
-    /// and read some of them back, so the values are kept rather than acted on.
-    /// Once a real `AudioProcessor` exists this store moves into it.
-    #[serde(with = "BigArray")]
-    audio_regs: [Byte; AUDIO_REG_COUNT],
     state: EmulatorState,
     #[serde(skip)]
     rom_path: Option<PathBuf>,
@@ -108,13 +95,12 @@ impl Device {
         Self {
             cpu: CentralProcessor::default(),
             ppu: PixelProcessor::default(),
-            _audio: None,
+            audio: AudioProcessor::default(),
             cartrige: None,
             joypad: Joypad::default(),
             infrared: Infrared::default(),
             serial: Serial::default(),
             timer: Timer::default(),
-            audio_regs: [Byte(0); AUDIO_REG_COUNT],
             rom: vec![Byte(0); ROM_BANK_SIZE * 2], // resized to the cartridge on load
             wram: vec![Byte(0); WRAM_SIZE],
             eram: vec![Byte(0); ERAM_SIZE],
@@ -201,6 +187,7 @@ impl Device {
 
         self.tick(TICKS_PER_FRAME);
         self.publish_frame(channels);
+        self.publish_audio(channels);
 
         if let Some(report) = pacer.frame_completed()
             && channels.messages.send(report).is_err()
@@ -216,11 +203,12 @@ impl Device {
     /// or the frontend channels that [`Self::run`] uses.
     pub fn tick(&mut self, ticks: u32) {
         for _ in 0..ticks {
-            // The PPU and timer run on the master clock, one step per tick.
+            // The PPU, timer, and APU run on the master clock, one step per tick.
             let mut pending = self.ppu.step();
             if self.timer.tick() {
                 pending |= Interrupts::Timer;
             }
+            self.audio.tick();
             self.request_interrupts(pending);
 
             // The CPU runs on the machine clock: one step every fourth tick.
@@ -276,6 +264,21 @@ impl Device {
             let mut frame = channels.frames.acquire();
             frame.copy_from_slice(&rendered[..]);
             channels.frames.publish(frame);
+        }
+    }
+
+    /// Hand the frontend the audio samples the APU produced this frame. The
+    /// shared buffer is capped, so if nothing is draining it (audio disabled, or
+    /// the machine paused) the excess is dropped rather than growing without
+    /// bound.
+    fn publish_audio(&mut self, channels: &CoreChannels) {
+        let samples = self.audio.drain();
+        if samples.is_empty() {
+            return;
+        }
+        if let Ok(mut buffer) = channels.audio.lock() {
+            let room = crate::frontend::AUDIO_BUFFER_CAP.saturating_sub(buffer.len());
+            buffer.extend(samples.into_iter().take(room));
         }
     }
 
@@ -542,12 +545,11 @@ impl Device {
         // Decode into a fresh machine first: if it fails, `self` is untouched.
         let mut restored: Self = bincode::deserialize(&data[savestate::HEADER_LEN..])?;
 
-        // The ROM, its path, the header, and audio are not in the payload; carry
-        // the live ones across so the restored machine keeps running this game.
+        // The ROM, its path, and the header are not in the payload; carry the
+        // live ones across so the restored machine keeps running this game.
         restored.rom = std::mem::take(&mut self.rom);
         restored.rom_path = self.rom_path.take();
         restored.cartrige = self.cartrige.take();
-        restored._audio = self._audio.take();
         *self = restored;
         Ok(())
     }
@@ -719,19 +721,18 @@ impl Device {
             // IO START
             0xFF00 => self.joypad.read(), // Joypad
             0xFF01..=0xFF02 => self.serial.read(address), // Serial
-            0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.read(address), // Timers
-            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF0F => Byte(self.interrupt_flag.0 | 0xE0), // IF (top 3 bits read as 1)
-            0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize], // Audio
+            0xFF10..=0xFF3F => self.audio.read(address), // Audio
             0xFF40..=0xFF55 => self.ppu.read_io(address), // PPU
             0xFF56 => self.infrared.read(), // Infrared Com Port
             0xFF57..=0xFF6F => self.ppu.read_io(address), // PPU
             0xFF70 => self.wram_bank,     // WRAM BANK
-            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF76 => Byte(0),            // Audio PCM12 (read-only, no audio yet)
-            0xFF77 => Byte(0),            // Audio PCM34 (read-only, no audio yet)
-            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF76 => self.audio.read(address), // PCM12 (read-only)
+            0xFF77 => self.audio.read(address), // PCM34 (read-only)
+            // Prohibited and unused IO holes read as open bus rather than
+            // faulting the core - a stray access must never take the thread down.
+            0xFF03 | 0xFF08..=0xFF0E | 0xFF71..=0xFF75 | 0xFF78..=0xFF7F => Byte(0xFF),
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)],
             INTERRUPT_ENABLE => self.interrupt_enable,
@@ -767,11 +768,9 @@ impl Device {
             // IO_START
             0xFF00 => self.joypad.write(value), // Joypad
             0xFF01..=0xFF02 => self.serial.write(address, value), // Serial
-            0xFF03 => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF04..=0xFF07 => self.timer.write(address, value), // Timers
-            0xFF08..=0xFF0E => panic!("Prohibited memory access at {address}"), // Prohibited
             0xFF0F => self.interrupt_flag = Byte(value.0 & 0x1F), // IF
-            0xFF10..=0xFF3F => self.audio_regs[(address.0 - AUDIO_REG_START) as usize] = value, // Audio
+            0xFF10..=0xFF3F => self.audio.write(address, value), // Audio
             0xFF46 => {
                 // OAM DMA: copy 0xA0 bytes from XX00 into OAM. Real hardware
                 // takes 160 machine cycles and locks the bus; this does it at
@@ -788,10 +787,9 @@ impl Device {
             0xFF56 => self.infrared.write(value), // Infrared Com Port
             0xFF57..=0xFF6F => self.ppu.write_io(address, value), // PPU
             0xFF70 => self.wram_bank = value,   // WRAM BANK
-            0xFF71..=0xFF75 => panic!("Prohibited memory access at {address}"), // Prohibited
-            0xFF76 => {}                        // Audio PCM12 (read-only)
-            0xFF77 => {}                        // Audio PCM34 (read-only)
-            0xFF78..=0xFF7F => panic!("Prohibited memory access at {address}"), // Prohibited
+            0xFF76..=0xFF77 => {}               // Audio PCM12/34 (read-only)
+            // Prohibited and unused IO holes drop writes rather than faulting.
+            0xFF03 | 0xFF08..=0xFF0E | 0xFF71..=0xFF75 | 0xFF78..=0xFF7F => {}
             // IO END
             HRAM_START..=HRAM_END => self.hram[address - Address(HRAM_START)] = value,
             INTERRUPT_ENABLE => self.interrupt_enable = value,
@@ -1351,6 +1349,17 @@ mod tests {
         assert_eq!(fresh.read(Address(0xA042)), Byte(0x77), "save RAM restored");
 
         std::fs::remove_file(&sav).ok();
+    }
+
+    #[test]
+    fn prohibited_and_unused_io_never_faults() {
+        let mut dev = Device::new();
+        // These used to `panic!` or hit an `unreachable!()`, taking the core
+        // thread down. They must now read open bus and drop writes instead.
+        for addr in [0xFF03u16, 0xFF08, 0xFF0E, 0xFF4C, 0xFF4E, 0xFF50, 0xFF72, 0xFF7F] {
+            dev.write(Address(addr), Byte(0x42)); // must not panic
+            assert_eq!(dev.read(Address(addr)), Byte(0xFF), "open bus at {addr:#06X}");
+        }
     }
 
     #[test]

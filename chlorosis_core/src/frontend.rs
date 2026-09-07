@@ -12,14 +12,30 @@
 //!   to queue up behind a slow frontend.
 
 use std::{
+    collections::VecDeque,
     path::PathBuf,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
 use crate::{
     device::EmulatorState,
     framebuffer::{frame_channel, FrameConsumer, FrameProducer},
 };
+
+/// Interleaved stereo samples (left, right) shared between two threads.
+///
+/// The emulation thread appends what the APU produces each frame, and the
+/// frontend's audio callback drains them. A mutex is enough at these rates and
+/// keeps the core free of an audio-backend dependency.
+pub type AudioBuffer = Arc<Mutex<VecDeque<f32>>>;
+
+/// Cap on the shared audio buffer: about a quarter second of stereo at 48 kHz.
+/// Bounds latency and stops a paused or absent consumer from growing it without
+/// limit.
+pub const AUDIO_BUFFER_CAP: usize = 24_000;
 
 /// A request from the frontend to the emulation thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +97,7 @@ pub struct CoreChannels {
     pub events: Receiver<Event>,
     pub messages: Sender<CoreMessage>,
     pub frames: FrameProducer,
+    pub audio: AudioBuffer,
 }
 
 /// The frontend's endpoints.
@@ -89,6 +106,7 @@ pub struct FrontendChannels {
     pub events: Sender<Event>,
     pub messages: Receiver<CoreMessage>,
     pub frames: FrameConsumer,
+    pub audio: AudioBuffer,
 }
 
 /// Wire up a frontend and an emulation thread.
@@ -97,17 +115,20 @@ pub fn channels() -> (CoreChannels, FrontendChannels) {
     let (event_tx, event_rx) = mpsc::channel();
     let (message_tx, message_rx) = mpsc::channel();
     let (frame_tx, frame_rx) = frame_channel();
+    let audio: AudioBuffer = Arc::new(Mutex::new(VecDeque::new()));
 
     (
         CoreChannels {
             events: event_rx,
             messages: message_tx,
             frames: frame_tx,
+            audio: Arc::clone(&audio),
         },
         FrontendChannels {
             events: event_tx,
             messages: message_rx,
             frames: frame_rx,
+            audio,
         },
     )
 }

@@ -17,6 +17,9 @@ use chlorosis_core::{
 };
 use minifb::{Key, Menu, Window, WindowOptions};
 
+#[cfg(feature = "audio")]
+mod audio;
+
 const MENU_OPEN_ROM: usize = 1;
 const MENU_RESET: usize = 2;
 const MENU_SAVE_STATE: usize = 3;
@@ -39,6 +42,12 @@ const MENU_MODIFIER: usize = minifb::MENU_KEY_CTRL;
 fn main() {
     let mut window = build_window();
     let (core_channels, frontend) = channels();
+
+    // Start audio before spawning the core so the shared buffer has a consumer
+    // as soon as samples arrive. The stream must outlive the loop, so it is held
+    // here until the window closes.
+    #[cfg(feature = "audio")]
+    let _audio_stream = audio::start(frontend.audio.clone());
 
     let core = thread::Builder::new()
         .name("core".to_owned())
