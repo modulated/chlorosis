@@ -466,6 +466,20 @@ impl Device {
         }
     }
 
+    /// Perform a CGB VRAM DMA (the `0xFF55` register). Both the general-purpose
+    /// and HBlank variants are run in full immediately; the HBlank version is
+    /// not spread across scanlines, which is enough to get tiles into VRAM even
+    /// if it is not cycle accurate. This is what CGB games use to load most of
+    /// their graphics, so without it the screen stays garbled.
+    fn vram_dma(&mut self) {
+        let (source, dest, length) = self.ppu.hdma_params();
+        for i in 0..length as u16 {
+            let byte = self.read(Address(source.wrapping_add(i)));
+            self.ppu.dma_write_vram(Address(dest.wrapping_add(i)), byte);
+        }
+        self.ppu.hdma_finish();
+    }
+
     pub fn read(&mut self, address: Address) -> Byte {
         match address.0 {
             // Both ROM windows go through the MBC, which maps them onto the flat
@@ -549,6 +563,11 @@ impl Device {
                 // once, which is enough for sprites to appear.
                 self.oam_dma(value);
                 self.ppu.write_io(address, value);
+            }
+            0xFF55 => {
+                // CGB VRAM DMA. Store the length/mode, then run the transfer.
+                self.ppu.write_io(address, value);
+                self.vram_dma();
             }
             0xFF40..=0xFF55 => self.ppu.write_io(address, value), // PPU
             0xFF56 => self.infrared.write(value), // Infrared Com Port

@@ -422,6 +422,31 @@ impl PixelProcessor {
         }
     }
 
+    /// CGB VRAM DMA parameters: `(source, destination, length)`. Source is
+    /// `HDMA1:HDMA2` aligned to 16 bytes; destination is `HDMA3:HDMA4`, an offset
+    /// into VRAM (`0x8000`); length is `((HDMA5 & 0x7F) + 1) * 16`.
+    pub const fn hdma_params(&self) -> (u16, u16, usize) {
+        let source = ((self.HDMA1.0 as u16) << 8 | self.HDMA2.0 as u16) & 0xFFF0;
+        let dest = (((self.HDMA3.0 as u16) << 8 | self.HDMA4.0 as u16) & 0x1FF0) | VRAM_START;
+        let length = ((self.HDMA5.0 & 0x7F) as usize + 1) * 16;
+        (source, dest, length)
+    }
+
+    /// Write one byte into VRAM (current bank) during a DMA, bypassing the
+    /// mode-based access guard that applies to CPU writes.
+    pub fn dma_write_vram(&mut self, address: Address, value: Byte) {
+        let index = self.vram_index(address);
+        if let Some(cell) = self.vram.get_mut(index) {
+            *cell = value;
+        }
+    }
+
+    /// Mark the VRAM DMA finished: `HDMA5` reads `0xFF` (bit 7 set = no active
+    /// transfer, length 0x7F).
+    pub const fn hdma_finish(&mut self) {
+        self.HDMA5 = Byte(0xFF);
+    }
+
     pub fn read_oam(&self, address: Address) -> Byte {
         if self.oam_accessible() {
             self.oam[address.0 as usize - OAM_START as usize]
