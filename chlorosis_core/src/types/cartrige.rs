@@ -67,6 +67,12 @@ impl CartrigeHeader {
     pub const fn is_cgb(&self) -> bool {
         matches!(self.cgb_flag, ColorMode::BackwardsCompat | ColorMode::ColorOnly)
     }
+
+    /// The header's global checksum (`0x14E-0x14F`). Not verified at boot, but
+    /// distinctive enough to use as a cheap ROM identity for save states.
+    pub const fn global_checksum(&self) -> u16 {
+        self.global_checksum
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion

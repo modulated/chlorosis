@@ -5,7 +5,11 @@
 //! the emulator last published and goes straight back to pumping window events,
 //! so the window stays responsive regardless of what the emulator is doing.
 
-use std::{sync::mpsc::Receiver, thread};
+use std::{
+    sync::mpsc::Receiver,
+    thread,
+    time::{Duration, Instant},
+};
 
 use chlorosis_core::{
     channels, framebuffer::blank_frame, CoreMessage, Device, EmulatorState, Event, Frame,
@@ -15,6 +19,15 @@ use minifb::{Key, Menu, Window, WindowOptions};
 
 const MENU_OPEN_ROM: usize = 1;
 const MENU_RESET: usize = 2;
+const MENU_SAVE_STATE: usize = 3;
+const MENU_LOAD_STATE: usize = 4;
+
+/// Quick-save/quick-load slot driven by the function keys. One slot is enough
+/// for iterating on a bug; the file format already carries a slot number.
+const QUICK_SLOT: u8 = 0;
+
+/// How long a one-off notice (a save/load confirmation) stays in the title.
+const NOTICE_LINGER: Duration = Duration::from_secs(3);
 
 /// Modifier for menu shortcuts: Command on macOS (the platform convention),
 /// Control elsewhere.
@@ -59,6 +72,9 @@ struct Ui {
     cartridge: Option<String>,
     speed: Option<f32>,
     fault: Option<String>,
+    /// A transient confirmation (state saved/loaded) shown in the title until it
+    /// expires.
+    notice: Option<(String, Instant)>,
     keymap: Keymap,
     quitting: bool,
 }
@@ -73,6 +89,7 @@ impl Ui {
             cartridge: None,
             speed: None,
             fault: None,
+            notice: None,
             keymap: Keymap::load(),
             quitting: false,
         }
@@ -87,7 +104,14 @@ impl Ui {
                     self.cartridge = Some(title);
                     self.fault = None;
                 }
-                CoreMessage::Error(e) => eprintln!("{e}"),
+                CoreMessage::Notice(text) => {
+                    println!("{text}");
+                    self.notice = Some((text, Instant::now()));
+                }
+                CoreMessage::Error(e) => {
+                    eprintln!("{e}");
+                    self.notice = Some((e, Instant::now()));
+                }
                 CoreMessage::Faulted(e) => {
                     eprintln!("Emulation stopped: {e}");
                     self.fault = Some(e);
@@ -141,6 +165,14 @@ impl Ui {
             let _ = events.send(Event::Step(TICKS_PER_FRAME));
         }
 
+        // Quick-save / quick-load the numbered slot next to the ROM.
+        if released.contains(&Key::F5) {
+            let _ = events.send(Event::QuickSave(QUICK_SLOT));
+        }
+        if released.contains(&Key::F8) {
+            let _ = events.send(Event::QuickLoad(QUICK_SLOT));
+        }
+
         // Press and release go out as they happen rather than being batched
         // into one poll, so the emulator sees the same edges the player made.
         let down: Vec<KeyCode> = pressed.iter().filter_map(|k| self.keymap.button(k)).collect();
@@ -184,6 +216,35 @@ impl Ui {
             MENU_RESET => {
                 let _ = events.send(Event::Reset);
             }
+            MENU_SAVE_STATE => {
+                let file = native_dialog::DialogBuilder::file()
+                    .add_filter("Chlorosis save state", ["chl"])
+                    .set_filename("state.chl")
+                    .set_owner(window)
+                    .save_single_file()
+                    .show();
+                match file {
+                    Ok(Some(f)) => {
+                        let _ = events.send(Event::SaveState(f));
+                    }
+                    Ok(None) => {}
+                    Err(e) => eprintln!("Could not open save dialog: {e}"),
+                }
+            }
+            MENU_LOAD_STATE => {
+                let file = native_dialog::DialogBuilder::file()
+                    .add_filter("Chlorosis save state", ["chl"])
+                    .set_owner(window)
+                    .open_single_file()
+                    .show();
+                match file {
+                    Ok(Some(f)) => {
+                        let _ = events.send(Event::LoadState(f));
+                    }
+                    Ok(None) => {}
+                    Err(e) => eprintln!("Could not open load dialog: {e}"),
+                }
+            }
             _ => eprintln!("Unhandled menu item {item}"),
         }
     }
@@ -213,6 +274,17 @@ impl Ui {
                     }
                 }
             }
+        }
+
+        // A recent save/load confirmation rides along in the title for a few
+        // seconds, then clears itself (take it out and only put it back while it
+        // is still fresh, which sidesteps borrowing self both ways).
+        if let Some((text, at)) = self.notice.take()
+            && at.elapsed() < NOTICE_LINGER
+        {
+            self.title.push_str(" - ");
+            self.title.push_str(&text);
+            self.notice = Some((text, at));
         }
 
         // A window title cannot contain NUL or other control bytes - minifb
@@ -254,6 +326,12 @@ fn build_window() -> Window {
     let mut menu = Menu::new("File").unwrap();
     menu.add_item("Open ROM", MENU_OPEN_ROM)
         .shortcut(Key::O, MENU_MODIFIER)
+        .build();
+    menu.add_item("Save State", MENU_SAVE_STATE)
+        .shortcut(Key::S, MENU_MODIFIER)
+        .build();
+    menu.add_item("Load State", MENU_LOAD_STATE)
+        .shortcut(Key::L, MENU_MODIFIER)
         .build();
     menu.add_item("Reset", MENU_RESET).build();
     window.add_menu(&menu);

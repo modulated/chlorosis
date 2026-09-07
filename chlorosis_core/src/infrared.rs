@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::types::Byte;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Infrared {
     read_enabled: bool,
     reading: bool,

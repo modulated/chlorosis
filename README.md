@@ -14,8 +14,22 @@ Default key bindings:
 | Backspace / Right Shift | Select |
 | Space | Pause / resume |
 | `.` | Step one frame (while paused) |
+| F5 | Quick-save state (slot 0) |
+| F8 | Quick-load state (slot 0) |
 | Esc | Quit |
 | Cmd/Ctrl + O | Open ROM |
+| Cmd/Ctrl + S | Save state to a file |
+| Cmd/Ctrl + L | Load state from a file |
+
+## Save states
+
+The whole machine can be snapshotted and restored. **File → Save State /
+Load State** (or Cmd/Ctrl + S / L) write and read a `.chl` file you choose;
+**F5 / F8** quick-save and quick-load a slot stored next to the ROM
+(`<rom>.0.chl`). A save state captures everything except the ROM itself
+(CPU, PPU, VRAM, cartridge RAM, MBC banking, timers, and so on), and a load
+is rejected with a message if the file is not a save state, was written by an
+incompatible build, or belongs to a different ROM.
 
 The game bindings are rebindable: copy `debugger/keymap.conf.example` to
 `keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at

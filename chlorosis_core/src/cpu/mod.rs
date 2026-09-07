@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::Device;
 
 use super::{types::SignedByte, Address, Byte};
@@ -9,7 +11,7 @@ mod macros;
 mod opcodes;
 mod registers;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CentralProcessor {
     pub a: Byte,
     pub b: Byte,

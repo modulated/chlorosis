@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{types::Byte, KeyCode};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Joypad {
     a: bool,
     b: bool,

@@ -27,8 +27,13 @@ pub enum Event {
     KeyDown(Vec<KeyCode>),
     KeyUp(Vec<KeyCode>),
     LoadFile(PathBuf),
+    /// Save/load a state to/from an explicit file (menu "Save/Load State...").
     SaveState(PathBuf),
     LoadState(PathBuf),
+    /// Quick-save/quick-load a numbered slot next to the ROM (function keys).
+    /// The core resolves the path, since it is the side that knows the ROM.
+    QuickSave(u8),
+    QuickLoad(u8),
     Run,
     Pause,
     /// Advance the given number of master clock ticks while paused.
@@ -44,6 +49,9 @@ pub enum CoreMessage {
     /// The emulator changed state. This is the only authority on it.
     State(EmulatorState),
     CartridgeLoaded(String),
+    /// A short confirmation of something that worked (a state saved or loaded),
+    /// worth showing the user briefly but not an error.
+    Notice(String),
     /// Something the user asked for did not work, but emulation continues.
     Error(String),
     /// Emulation stopped dead - a panic or unimplemented hardware. Without

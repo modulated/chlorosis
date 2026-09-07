@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::types::{Address, Byte};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Timer {
     /// 16-bit internal counter incremented every master tick; DIV is its high
     /// byte, so DIV advances at 16384 Hz rather than the tick rate.
@@ -121,7 +123,7 @@ impl Timer {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 enum ClockSpeed {
     #[default]
     C1024,

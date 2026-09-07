@@ -12,12 +12,14 @@
 //! other controllers fall back to MBC1 behaviour, and MBC3's real-time clock is
 //! not modelled.
 
+use serde::{Deserialize, Serialize};
+
 use crate::constants::ROM_BANK_SIZE;
 
 /// External-RAM bank size (8 KB).
 const RAM_BANK_SIZE: usize = 0x2000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Kind {
     None,
     Mbc1,
@@ -25,7 +27,7 @@ enum Kind {
     Mbc5,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Mbc {
     kind: Kind,
     rom_banks: usize,

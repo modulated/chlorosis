@@ -12,6 +12,8 @@ use crate::{
     framebuffer::{FRAME_LEN, SCREEN_HEIGHT, SCREEN_WIDTH},
     Address, Byte,
 };
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use std::collections::VecDeque;
 
 /// DMG background shades, darkest last, as `0x00RRGGBB`. The four BGP palette
@@ -30,6 +32,21 @@ const MAP_WIDTH: usize = 32;
 /// Unsigned addressing (LCDC bit 4 set) counts tiles up from 0x8000; signed
 /// addressing counts from 0x9000 with the tile number taken as `i8`, so numbers
 /// 0x80..0xFF address the block just below it.
+// Defaults for the render buffers a save state skips (arrays larger than 32
+// have no `Default`, so serde needs these by name).
+const fn no_frame() -> Option<Box<[u32; FRAME_LEN]>> {
+    None
+}
+fn blank_frame_buffer() -> Box<[u32; FRAME_LEN]> {
+    Box::new([0; FRAME_LEN])
+}
+const fn blank_line_ids() -> [u8; SCREEN_WIDTH] {
+    [0; SCREEN_WIDTH]
+}
+const fn blank_line_priority() -> [bool; SCREEN_WIDTH] {
+    [false; SCREEN_WIDTH]
+}
+
 const fn tile_data_offset(tile_number: u8, unsigned: bool) -> usize {
     if unsigned {
         tile_number as usize * TILE_SIZE
@@ -67,20 +84,29 @@ const VBLANK_LINE: u8 = 144;
 /// Total lines including the 10 VBlank lines (0..154).
 const LINES_PER_FRAME: u8 = 154;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct PixelProcessor {
-    /// Frame handed to the frontend once complete; `None` between frames.
-    buffer: Option<[u32; FRAME_LEN]>,
+    // The frame buffers and per-line scratch are transient render output, not
+    // machine state: they are rebuilt from VRAM/OAM on the next scanline, so a
+    // save state skips them and reconstructs blanks on load.
+    /// Frame handed to the frontend once complete; `None` between frames. Boxed
+    /// so the ~90 KB buffer lives on the heap rather than bloating the struct
+    /// (which is moved wholesale on reset and on loading a save state).
+    #[serde(skip, default = "no_frame")]
+    buffer: Option<Box<[u32; FRAME_LEN]>>,
     /// Frame being drawn, one scanline at a time during HBlank. Copied into
     /// `buffer` when the frame finishes at the start of VBlank.
-    frame: [u32; FRAME_LEN],
+    #[serde(skip, default = "blank_frame_buffer")]
+    frame: Box<[u32; FRAME_LEN]>,
     /// Background colour id (0-3) for each pixel of the line currently being
     /// drawn. Sprites consult it for the BG-over-OBJ priority bit, which the
     /// final `0x00RRGGBB` frame no longer carries.
+    #[serde(skip, default = "blank_line_ids")]
     bg_line_ids: [u8; SCREEN_WIDTH],
     /// Whether this tile's background pixel has BG-to-OAM priority set (CGB tile
     /// attribute bit 7). Sprites yield to it where the pixel is non-zero.
+    #[serde(skip, default = "blank_line_priority")]
     bg_line_priority: [bool; SCREEN_WIDTH],
     /// Colour rendering (CGB palettes + tile attributes) versus DMG greyscale.
     /// Set from the cartridge's CGB flag when a ROM loads.
@@ -89,17 +115,23 @@ pub struct PixelProcessor {
     /// only on scanlines where it is actually drawn, so it is tracked separately
     /// from `LY` and reset each frame.
     window_line: u8,
+    #[serde(with = "BigArray")]
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
+    #[serde(with = "BigArray")]
     pub oam: [Byte; OAM_SIZE],
+    #[serde(with = "BigArray")]
     pub bcram: [Byte; 64],
+    #[serde(with = "BigArray")]
     pub ocram: [Byte; 64],
     line_dot_counter: u32,
     // The pixel-mixing FIFOs the renderer will fill in item 14; unused until
     // then, but kept so the renderer's shape is already carved out.
     #[allow(dead_code)]
+    #[serde(skip)]
     bg_fifo: VecDeque<Pixel>,
     #[allow(dead_code)]
+    #[serde(skip)]
     obj_fifo: VecDeque<Pixel>,
     LCDC: Byte, // LCD control
     STAT: Byte, // PPU state
@@ -128,7 +160,7 @@ impl Default for PixelProcessor {
     fn default() -> Self {
         Self {
             buffer: None,
-            frame: [0; FRAME_LEN],
+            frame: Box::new([0; FRAME_LEN]),
             bg_line_ids: [0; SCREEN_WIDTH],
             bg_line_priority: [false; SCREEN_WIDTH],
             cgb_mode: false,
@@ -175,7 +207,7 @@ impl PixelProcessor {
     ///
     /// The emulation loop pulls frames from here rather than reaching into the
     /// buffer directly, so "a frame is finished" stays a fact the PPU decides.
-    pub const fn take_frame(&mut self) -> Option<[u32; FRAME_LEN]> {
+    pub const fn take_frame(&mut self) -> Option<Box<[u32; FRAME_LEN]>> {
         self.buffer.take()
     }
 
@@ -269,7 +301,7 @@ impl PixelProcessor {
                 }
                 // The frame is complete; hand it to the frontend. The window's
                 // line counter restarts for the next frame.
-                self.buffer = Some(self.frame);
+                self.buffer = Some(self.frame.clone());
                 self.window_line = 0;
             }
         }

@@ -6,11 +6,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 use super::{Address, Byte};
 
 use crate::{
-    constants::*, mbc::Mbc, CoreChannels, CoreMessage, Event, Infrared, Joypad, KeyCode, Serial,
-    Timer,
+    constants::*, mbc::Mbc, savestate::{self, SaveStateError}, CoreChannels, CoreMessage, Event,
+    Infrared, Joypad, KeyCode, Serial, Timer,
 };
 
 use super::{types::CartrigeHeader, AudioProcessor, CentralProcessor, PixelProcessor};
@@ -38,13 +41,20 @@ const MAX_CATCHUP_FRAMES: u32 = 4;
 /// How often throughput is reported to the frontend.
 const SPEED_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Device {
     pub cpu: CentralProcessor,
     ppu: PixelProcessor,
+    // Audio, the cartridge header, the ROM image, and the ROM's path are not
+    // part of a save state: the ROM is immutable and reloaded from disk, the
+    // header is derived from it, and audio carries no state yet. They are kept
+    // from the live machine across a load rather than serialized.
+    #[serde(skip)]
     _audio: Option<AudioProcessor>,
+    #[serde(skip)]
     cartrige: Option<CartrigeHeader>,
     joypad: Joypad,
+    #[serde(skip)]
     rom: Vec<Byte>,
     wram: Vec<Byte>,
     eram: Vec<Byte>,
@@ -68,15 +78,17 @@ pub struct Device {
     /// for now, but ROMs write these within the first few hundred instructions
     /// and read some of them back, so the values are kept rather than acted on.
     /// Once a real `AudioProcessor` exists this store moves into it.
+    #[serde(with = "BigArray")]
     audio_regs: [Byte; AUDIO_REG_COUNT],
     state: EmulatorState,
+    #[serde(skip)]
     rom_path: Option<PathBuf>,
 }
 
 /// Whether the emulator is executing. The emulation thread is the only owner of
 /// this; the frontend learns about changes through [`CoreMessage::State`]
 /// rather than tracking its own copy.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum EmulatorState {
     /// No cartridge loaded.
     Stopped,
@@ -256,7 +268,7 @@ impl Device {
     fn publish_frame(&mut self, channels: &CoreChannels) {
         if let Some(rendered) = self.ppu.take_frame() {
             let mut frame = channels.frames.acquire();
-            frame.copy_from_slice(&rendered);
+            frame.copy_from_slice(&rendered[..]);
             channels.frames.publish(frame);
         }
     }
@@ -308,13 +320,22 @@ impl Device {
                 }
             }
             Event::Reset => self.handle_reset(channels),
-            // Unsupported requests are reported, never panicked on: a menu item
-            // the frontend has not finished wiring up must not be able to take
-            // the emulation thread down with it.
-            Event::SaveState(_) | Event::LoadState(_) => report(
-                channels,
-                CoreMessage::Error("Save states are not implemented".to_owned()),
-            ),
+            Event::SaveState(path) => self.handle_save_state(path, channels),
+            Event::LoadState(path) => self.handle_load_state(path, channels),
+            Event::QuickSave(slot) => match self.slot_path(slot) {
+                Some(path) => self.handle_save_state(path, channels),
+                None => report(
+                    channels,
+                    CoreMessage::Error("No ROM loaded to quick-save".to_owned()),
+                ),
+            },
+            Event::QuickLoad(slot) => match self.slot_path(slot) {
+                Some(path) => self.handle_load_state(path, channels),
+                None => report(
+                    channels,
+                    CoreMessage::Error("No ROM loaded to quick-load".to_owned()),
+                ),
+            },
             Event::Exit => return Control::Shutdown,
         }
         Control::Continue
@@ -334,6 +355,37 @@ impl Device {
             Err(e) => report(
                 channels,
                 CoreMessage::Error(format!("Could not load {}: {e}", path.display())),
+            ),
+        }
+    }
+
+    fn handle_save_state(&self, path: PathBuf, channels: &CoreChannels) {
+        match self.save_state_to(&path) {
+            Ok(()) => report(
+                channels,
+                CoreMessage::Notice(format!("Saved state to {}", path.display())),
+            ),
+            Err(e) => report(
+                channels,
+                CoreMessage::Error(format!("Could not save state to {}: {e}", path.display())),
+            ),
+        }
+    }
+
+    fn handle_load_state(&mut self, path: PathBuf, channels: &CoreChannels) {
+        match self.load_state_from(&path) {
+            Ok(()) => {
+                report(
+                    channels,
+                    CoreMessage::Notice(format!("Loaded state from {}", path.display())),
+                );
+                // The restored state carries its own running/paused flag; the
+                // frontend tracks a copy, so tell it what the machine is now.
+                report(channels, CoreMessage::State(self.state));
+            }
+            Err(e) => report(
+                channels,
+                CoreMessage::Error(format!("Could not load state from {}: {e}", path.display())),
             ),
         }
     }
@@ -428,6 +480,87 @@ impl Device {
         self.dump_cartrige_header();
 
         Ok(())
+    }
+
+    /// Serialize the whole machine (minus the ROM, which is reloaded on restore)
+    /// into a save-state blob: the header (magic, format version, ROM checksum)
+    /// followed by the `bincode` payload.
+    pub fn save_state(&self) -> Result<Vec<u8>, SaveStateError> {
+        let header = self.cartrige.as_ref().ok_or(SaveStateError::NoCartridge)?;
+
+        let mut out = Vec::with_capacity(savestate::HEADER_LEN + 0x10000);
+        out.extend_from_slice(&savestate::MAGIC);
+        out.extend_from_slice(&savestate::FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&header.global_checksum().to_le_bytes());
+        bincode::serialize_into(&mut out, self)?;
+        Ok(out)
+    }
+
+    /// Restore the machine from a blob produced by [`Self::save_state`], keeping
+    /// the currently loaded ROM. Validates the magic, format version, and ROM
+    /// checksum before touching any state, so a bad or foreign file leaves the
+    /// running machine untouched.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), SaveStateError> {
+        let header = self.cartrige.as_ref().ok_or(SaveStateError::NoCartridge)?;
+
+        if data.len() < savestate::HEADER_LEN {
+            return Err(SaveStateError::Truncated);
+        }
+        if data[0..4] != savestate::MAGIC {
+            return Err(SaveStateError::NotASaveState);
+        }
+        let version = u16::from_le_bytes([data[4], data[5]]);
+        if version != savestate::FORMAT_VERSION {
+            return Err(SaveStateError::VersionMismatch {
+                found: version,
+                expected: savestate::FORMAT_VERSION,
+            });
+        }
+        let checksum = u16::from_le_bytes([data[6], data[7]]);
+        if checksum != header.global_checksum() {
+            return Err(SaveStateError::WrongRom {
+                found: checksum,
+                expected: header.global_checksum(),
+            });
+        }
+
+        // Decode into a fresh machine first: if it fails, `self` is untouched.
+        let mut restored: Self = bincode::deserialize(&data[savestate::HEADER_LEN..])?;
+
+        // The ROM, its path, the header, and audio are not in the payload; carry
+        // the live ones across so the restored machine keeps running this game.
+        restored.rom = std::mem::take(&mut self.rom);
+        restored.rom_path = self.rom_path.take();
+        restored.cartrige = self.cartrige.take();
+        restored._audio = self._audio.take();
+        *self = restored;
+        Ok(())
+    }
+
+    /// Write a save state to `path`.
+    pub fn save_state_to(&self, path: impl AsRef<std::path::Path>) -> Result<(), SaveStateError> {
+        let bytes = self.save_state()?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    /// Read and restore a save state from `path`.
+    pub fn load_state_from(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(), SaveStateError> {
+        let bytes = std::fs::read(path)?;
+        self.load_state(&bytes)
+    }
+
+    /// The conventional path for quick-save slot `slot`, alongside the ROM:
+    /// `<rom>.<slot>.chl`. `None` when no ROM path is known.
+    pub fn slot_path(&self, slot: u8) -> Option<PathBuf> {
+        self.rom_path.as_ref().map(|rom| {
+            let mut name = rom.as_os_str().to_owned();
+            name.push(format!(".{slot}.chl"));
+            PathBuf::from(name)
+        })
     }
 
     /// Bytes the ROM has shifted out of the serial port - its console output,
@@ -939,7 +1072,7 @@ mod tests {
         let mut dev = Device::new();
         dev.load_cartrige(&path).expect("load cartridge");
 
-        let mut last = [0u32; SCREEN_WIDTH * SCREEN_HEIGHT];
+        let mut last = Box::new([0u32; SCREEN_WIDTH * SCREEN_HEIGHT]);
         for _ in 0..frames {
             dev.tick(TICKS_PER_FRAME);
             if let Some(frame) = dev.ppu.take_frame() {
@@ -949,12 +1082,149 @@ mod tests {
 
         let out = std::env::var("CHLOROSIS_DUMP_PPM").unwrap_or_else(|_| "frame.ppm".into());
         let mut buf = format!("P6\n{SCREEN_WIDTH} {SCREEN_HEIGHT}\n255\n").into_bytes();
-        for px in last {
+        for &px in last.iter() {
             buf.push((px >> 16) as u8);
             buf.push((px >> 8) as u8);
             buf.push(px as u8);
         }
         std::fs::write(&out, buf).expect("write ppm");
         eprintln!("wrote {out}");
+    }
+
+    /// Diagnostic: prove a save state restores a real ROM exactly. Runs the ROM
+    /// at `CHLOROSIS_DUMP_ROM` for a while, saves, runs on for a few more frames,
+    /// then loads the state into a fresh machine and checks the next rendered
+    /// frame matches the original's at that point. Skips unless the var is set.
+    #[test]
+    fn save_load_restores_a_real_rom() {
+        use crate::TICKS_PER_FRAME;
+        let Ok(path) = std::env::var("CHLOROSIS_DUMP_ROM") else {
+            eprintln!("skipping: set CHLOROSIS_DUMP_ROM to exercise a real ROM");
+            return;
+        };
+
+        let mut a = Device::new();
+        a.load_cartrige(&path).expect("load");
+        for _ in 0..200 {
+            a.tick(TICKS_PER_FRAME);
+        }
+        let snapshot = a.save_state().expect("save");
+
+        // Fresh machine, same ROM, restore the snapshot. Re-saving must be
+        // byte-identical: everything serialized round-trips.
+        let mut b = Device::new();
+        b.load_cartrige(&path).expect("load");
+        b.load_state(&snapshot).expect("restore");
+        assert_eq!(snapshot, b.save_state().expect("re-save"), "state not faithful");
+
+        // And the two machines must stay in lock-step: run both several frames
+        // and compare the final rendered frame. A few frames lets the skipped
+        // frame buffer refill, and surfaces any unsaved state that would make
+        // them drift apart.
+        let mut reference = a;
+        let mut expected = None;
+        let mut got = None;
+        for _ in 0..4 {
+            reference.tick(TICKS_PER_FRAME);
+            b.tick(TICKS_PER_FRAME);
+            expected = reference.ppu.take_frame();
+            got = b.ppu.take_frame();
+        }
+        assert_eq!(expected, got, "restored machine drifted from the original");
+    }
+
+    /// A `Device` with a minimal ROM loaded, whose header global checksum is
+    /// `checksum`. The temp file must be kept alive for `rom_path` to stay valid.
+    fn device_with_rom(checksum: u16) -> (Device, tempfile::NamedTempFile) {
+        use std::io::Write;
+        let mut rom = vec![0u8; ROM_BANK_SIZE * 2];
+        rom[0x0147] = 0x00; // MBC type: ROM ONLY
+        rom[0x0148] = 0x00; // ROM size: 32 KB
+        rom[0x014E] = (checksum >> 8) as u8; // global checksum, big-endian in header
+        rom[0x014F] = checksum as u8;
+
+        let mut file = tempfile::NamedTempFile::new().expect("temp rom");
+        file.write_all(&rom).expect("write rom");
+        file.flush().expect("flush rom");
+
+        let mut dev = Device::new();
+        dev.load_cartrige(file.path()).expect("load");
+        (dev, file)
+    }
+
+    #[test]
+    fn save_state_round_trips_the_machine() {
+        let (mut dev, _rom) = device_with_rom(0x1234);
+
+        // Put some recognizable state across several components.
+        dev.cpu.a = Byte(0x42);
+        dev.cpu.pc = Address(0x2468);
+        dev.write(Address(0xC005), Byte(0x99)); // WRAM
+        dev.ppu.vram[10] = Byte(0x77);
+        dev.ppu.bcram[3] = Byte(0x5A);
+
+        let saved = dev.save_state().expect("save");
+
+        // Clobber all of it, then restore.
+        dev.cpu.a = Byte(0);
+        dev.cpu.pc = Address(0);
+        dev.write(Address(0xC005), Byte(0));
+        dev.ppu.vram[10] = Byte(0);
+        dev.ppu.bcram[3] = Byte(0);
+
+        dev.load_state(&saved).expect("load");
+
+        assert_eq!(dev.cpu.a, Byte(0x42));
+        assert_eq!(dev.cpu.pc, Address(0x2468));
+        assert_eq!(dev.read(Address(0xC005)), Byte(0x99));
+        assert_eq!(dev.ppu.vram[10], Byte(0x77));
+        assert_eq!(dev.ppu.bcram[3], Byte(0x5A));
+        // The ROM survived the restore (it is not part of the payload).
+        assert!(dev.cartrige.is_some(), "cartridge kept across load");
+    }
+
+    #[test]
+    fn save_state_without_a_cartridge_is_an_error() {
+        let dev = Device::new();
+        assert!(matches!(
+            dev.save_state(),
+            Err(crate::SaveStateError::NoCartridge)
+        ));
+    }
+
+    #[test]
+    fn load_state_rejects_a_non_save_file() {
+        let (mut dev, _rom) = device_with_rom(0x1234);
+        let err = dev.load_state(b"not a chlorosis save at all").unwrap_err();
+        assert!(matches!(err, crate::SaveStateError::NotASaveState));
+    }
+
+    #[test]
+    fn load_state_rejects_a_state_from_another_rom() {
+        let (dev_a, _rom_a) = device_with_rom(0xAAAA);
+        let saved = dev_a.save_state().expect("save");
+
+        // A different ROM (different checksum) must refuse the state.
+        let (mut dev_b, _rom_b) = device_with_rom(0xBBBB);
+        let err = dev_b.load_state(&saved).unwrap_err();
+        assert!(
+            matches!(err, crate::SaveStateError::WrongRom { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn load_state_rejects_a_truncated_file() {
+        let (mut dev, _rom) = device_with_rom(0x1234);
+        let err = dev.load_state(&[0x01, 0x02]).unwrap_err();
+        assert!(matches!(err, crate::SaveStateError::Truncated));
+    }
+
+    #[test]
+    fn slot_path_sits_next_to_the_rom() {
+        let (dev, rom) = device_with_rom(0x1234);
+        let slot = dev.slot_path(0).expect("rom path known");
+        let expected = format!("{}.0.chl", rom.path().display());
+        assert_eq!(slot.to_string_lossy(), expected);
     }
 }

@@ -1,8 +1,10 @@
 use std::ops::{Add, IndexMut, Mul, Sub};
 
+use serde::{Deserialize, Serialize};
+
 use super::Byte;
 
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Address(pub u16);
 
 impl Address {

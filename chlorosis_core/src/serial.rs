@@ -5,9 +5,11 @@
 //! transfer with the internal clock, expecting it to shift out. Those bytes are
 //! captured here so a headless harness can read the ROM's text output.
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::{Address, Byte};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Serial {
     /// SB: the byte staged for transfer.
     data: Byte,
