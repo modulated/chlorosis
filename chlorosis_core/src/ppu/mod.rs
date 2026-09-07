@@ -1,4 +1,3 @@
-mod oam;
 mod pixel;
 mod registers;
 mod tile;
@@ -6,7 +5,7 @@ mod tile;
 use self::{
     pixel::Pixel,
     registers::{ObjectSize, StatusMode, TileAddressingMode},
-    tile::Tile,
+    tile::TileAttributes,
 };
 use crate::{
     constants::*,
@@ -39,6 +38,23 @@ const fn tile_data_offset(tile_number: u8, unsigned: bool) -> usize {
     }
 }
 
+/// Convert one CGB palette entry to `0x00RRGGBB`. `ram` is `bcram` (background)
+/// or `ocram` (objects); each palette is eight bytes holding four little-endian
+/// BGR555 colours, so entry `color_id` of `palette` starts at `palette*8 +
+/// color_id*2`. Each 5-bit channel is expanded to 8 bits.
+const fn cgb_color(ram: &[Byte; 64], palette: u8, color_id: u8) -> u32 {
+    let base = palette as usize * 8 + color_id as usize * 2;
+    let rgb555 = ram[base].0 as u16 | ((ram[base + 1].0 as u16) << 8);
+    let r = (rgb555 & 0x1F) as u32;
+    let g = ((rgb555 >> 5) & 0x1F) as u32;
+    let b = ((rgb555 >> 10) & 0x1F) as u32;
+    // 5-bit -> 8-bit: shift up and replicate the top bits into the low ones.
+    let r = (r << 3) | (r >> 2);
+    let g = (g << 3) | (g >> 2);
+    let b = (b << 3) | (b >> 2);
+    (r << 16) | (g << 8) | b
+}
+
 /// Dots (master ticks) per scanline.
 const DOTS_PER_LINE: u32 = 456;
 /// Dots spent in OAM scan (mode 2) at the start of each visible line.
@@ -63,6 +79,12 @@ pub struct PixelProcessor {
     /// drawn. Sprites consult it for the BG-over-OBJ priority bit, which the
     /// final `0x00RRGGBB` frame no longer carries.
     bg_line_ids: [u8; SCREEN_WIDTH],
+    /// Whether this tile's background pixel has BG-to-OAM priority set (CGB tile
+    /// attribute bit 7). Sprites yield to it where the pixel is non-zero.
+    bg_line_priority: [bool; SCREEN_WIDTH],
+    /// Colour rendering (CGB palettes + tile attributes) versus DMG greyscale.
+    /// Set from the cartridge's CGB flag when a ROM loads.
+    cgb_mode: bool,
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
     pub oam: [Byte; OAM_SIZE],
@@ -104,6 +126,8 @@ impl Default for PixelProcessor {
             buffer: None,
             frame: [0; FRAME_LEN],
             bg_line_ids: [0; SCREEN_WIDTH],
+            bg_line_priority: [false; SCREEN_WIDTH],
+            cgb_mode: false,
             vram: [Byte(0); VRAM_SIZE],
             vram_bank: Default::default(),
             oam: [Byte(0); OAM_SIZE],
@@ -257,12 +281,15 @@ impl PixelProcessor {
         }
         let line_start = row * SCREEN_WIDTH;
 
-        if !self.is_win_bg_priority() {
+        // LCDC bit 0 blanks the background on DMG. On CGB it instead only drops
+        // the background's priority over sprites, so the tiles still draw.
+        if !self.cgb_mode && !self.is_win_bg_priority() {
             let blank = SHADES[0];
             for pixel in &mut self.frame[line_start..line_start + SCREEN_WIDTH] {
                 *pixel = blank;
             }
             self.bg_line_ids = [0; SCREEN_WIDTH];
+            self.bg_line_priority = [false; SCREEN_WIDTH];
             return;
         }
 
@@ -271,24 +298,42 @@ impl PixelProcessor {
 
         let bg_y = ly.wrapping_add(self.SCY.0) as usize;
         let tile_row = bg_y / TILE_HEIGHT;
-        let row_in_tile = bg_y % TILE_HEIGHT;
 
         for screen_x in 0..SCREEN_WIDTH {
             let bg_x = (screen_x as u8).wrapping_add(self.SCX.0) as usize;
             let tile_col = bg_x / TILE_WIDTH;
-            let col_in_tile = bg_x % TILE_WIDTH;
+            let map_index = map_base + tile_row * MAP_WIDTH + tile_col;
+            let tile_number = self.vram[map_index].0;
 
-            let tile_number = self.vram[map_base + tile_row * MAP_WIDTH + tile_col].0;
-            let plane = tile_data_offset(tile_number, unsigned) + row_in_tile * TILE_ROW_BYTES;
+            // CGB tile attributes live at the same offset in VRAM bank 1.
+            let attr = if self.cgb_mode {
+                TileAttributes::from(self.vram[VRAM_BANK_SIZE + map_index])
+            } else {
+                TileAttributes::from(Byte(0))
+            };
+
+            let row_in_tile = if attr.vflip {
+                TILE_HEIGHT - 1 - (bg_y % TILE_HEIGHT)
+            } else {
+                bg_y % TILE_HEIGHT
+            };
+            let col_in_tile = bg_x % TILE_WIDTH;
+            let bit = if attr.hflip { col_in_tile } else { 7 - col_in_tile };
+
+            let bank_offset = if attr.vram_bank { VRAM_BANK_SIZE } else { 0 };
+            let plane =
+                bank_offset + tile_data_offset(tile_number, unsigned) + row_in_tile * TILE_ROW_BYTES;
             let low = self.vram[plane].0;
             let high = self.vram[plane + 1].0;
-
-            // Pixel 0 of the row is the most significant bit of each plane.
-            let bit = 7 - col_in_tile;
             let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
 
             self.bg_line_ids[screen_x] = color_id;
-            self.frame[line_start + screen_x] = self.bg_shade(color_id);
+            self.bg_line_priority[screen_x] = attr.priority;
+            self.frame[line_start + screen_x] = if self.cgb_mode {
+                cgb_color(&self.bcram, attr.palette, color_id)
+            } else {
+                self.bg_shade(color_id)
+            };
         }
     }
 
@@ -296,6 +341,11 @@ impl PixelProcessor {
     const fn bg_shade(&self, color_id: u8) -> u32 {
         let shade = (self.BGP.0 >> (color_id * 2)) & 0b11;
         SHADES[shade as usize]
+    }
+
+    /// Select the colour renderer (CGB palettes) or the DMG greyscale path.
+    pub const fn set_cgb_mode(&mut self, on: bool) {
+        self.cgb_mode = on;
     }
 
     /// Overlay the sprites that intersect scanline `ly` onto the working frame,
@@ -329,8 +379,12 @@ impl PixelProcessor {
             }
         }
         let chosen = &mut chosen[..count];
-        // Priority order is lower X first, ties broken by OAM index.
-        chosen.sort_by_key(|&i| (self.oam[i * 4 + 1].0, i));
+        // DMG orders objects by X (ties broken by OAM index); CGB orders purely
+        // by OAM index, so lower-index objects always win. The scan already
+        // collected them in OAM order, so CGB just keeps that.
+        if !self.cgb_mode {
+            chosen.sort_by_key(|&i| (self.oam[i * 4 + 1].0, i));
+        }
         // Draw in reverse so the highest-priority object ends up on top.
         for &i in chosen.iter().rev() {
             self.draw_sprite(i, ly, height);
@@ -346,7 +400,17 @@ impl PixelProcessor {
         let behind_bg = attr.is_bit_set(7);
         let y_flip = attr.is_bit_set(6);
         let x_flip = attr.is_bit_set(5);
-        let palette = if attr.is_bit_set(4) { self.OBP1 } else { self.OBP0 };
+        // DMG picks one of two palettes with bit 4; CGB uses bit 3 to pick the
+        // VRAM bank of the tile data and bits 0-2 to pick an OBJ palette.
+        let dmg_palette = if attr.is_bit_set(4) { self.OBP1 } else { self.OBP0 };
+        let cgb_palette = attr.0 & 0b0000_0111;
+        let bank_offset = if self.cgb_mode && attr.is_bit_set(3) {
+            VRAM_BANK_SIZE
+        } else {
+            0
+        };
+        // On CGB, LCDC bit 0 is a master switch: cleared, objects always win.
+        let bg_has_priority = !self.cgb_mode || self.is_win_bg_priority();
 
         let mut row = (ly - sprite_y) as usize;
         if y_flip {
@@ -359,7 +423,7 @@ impl PixelProcessor {
         } else {
             tile
         };
-        let plane = tile_data_offset(tile_number, true) + (row % 8) * TILE_ROW_BYTES;
+        let plane = bank_offset + tile_data_offset(tile_number, true) + (row % 8) * TILE_ROW_BYTES;
         let low = self.vram[plane].0;
         let high = self.vram[plane + 1].0;
 
@@ -375,12 +439,22 @@ impl PixelProcessor {
             if color_id == 0 {
                 continue; // transparent
             }
-            if behind_bg && self.bg_line_ids[x] != 0 {
-                continue; // background wins where it is non-zero
+            // The object yields to non-zero background where the background has
+            // priority - set either by this object's own OAM bit 7 or, on CGB,
+            // by the background tile's own priority attribute.
+            let bg_wins = bg_has_priority
+                && self.bg_line_ids[x] != 0
+                && (behind_bg || self.bg_line_priority[x]);
+            if bg_wins {
+                continue;
             }
 
-            let shade = (palette.0 >> (color_id * 2)) & 0b11;
-            self.frame[ly as usize * SCREEN_WIDTH + x] = SHADES[shade as usize];
+            self.frame[ly as usize * SCREEN_WIDTH + x] = if self.cgb_mode {
+                cgb_color(&self.ocram, cgb_palette, color_id)
+            } else {
+                let shade = (dmg_palette.0 >> (color_id * 2)) & 0b11;
+                SHADES[shade as usize]
+            };
         }
     }
 
@@ -461,72 +535,15 @@ impl PixelProcessor {
         }
     }
 
-    // Tiles stored in VRAM, each bank holds 384 tiles (16 bytes each)
-    // Split into 3 blocks of 128 tiles
-    pub fn get_tile(&self, index: Byte, mode: TileAddressingMode) -> Tile {
-        let mut b = [Byte(0); 16];
-
-        match mode {
-            TileAddressingMode::Unsigned => {
-                for (i, x) in self
-                    .vram
-                    .iter()
-                    .skip(index.0 as usize * TILE_SIZE + self.vram_bank.0 as usize * VRAM_BANK_SIZE)
-                    .take(TILE_SIZE)
-                    .enumerate()
-                {
-                    b[i] = *x;
-                }
-            }
-            TileAddressingMode::Signed => {
-                if index.0 > 127 {
-                    for (i, x) in self
-                        .vram
-                        .iter()
-                        .skip(
-                            0x0800
-                                + index.0 as usize * TILE_SIZE
-                                + self.vram_bank.0 as usize * VRAM_BANK_SIZE,
-                        )
-                        .take(TILE_SIZE)
-                        .enumerate()
-                    {
-                        b[i] = *x;
-                    }
-                } else {
-                    for (i, x) in self
-                        .vram
-                        .iter()
-                        .skip(
-                            index.0 as usize * TILE_SIZE
-                                + self.vram_bank.0 as usize * VRAM_BANK_SIZE,
-                        )
-                        .take(TILE_SIZE)
-                        .enumerate()
-                    {
-                        b[i] = *x;
-                    }
-                }
-            }
-        }
-        Tile(b)
-    }
-
-    fn get_tile_map(&self) -> Vec<Tile> {
-        let mut out = Vec::with_capacity(32 * 32);
-        let mode = self.read_tile_addressing_mode();
-        for i in self.read_background_tile_map_area() {
-            let index = self.vram[i as usize]; // TODO: may need to implement bank switch
-            out.push(self.get_tile(index, mode))
-        }
-        out
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{registers::StatusMode, PixelProcessor, SHADES};
-    use crate::{constants::TILE_SIZE, Address, Byte};
+    use crate::{
+        constants::{TILE_SIZE, VRAM_BANK_SIZE},
+        Address, Byte,
+    };
 
     const VRAM_ADDR: Address = Address(0x8000);
     const OAM_ADDR: Address = Address(0xFE00);
@@ -576,8 +593,11 @@ mod tests {
 
     #[test]
     fn background_row_is_rendered_through_the_palette() {
-        let mut ppu = PixelProcessor::default(); // LCDC 0x91: LCD+BG on, unsigned
-        ppu.BGP = Byte(0xE4); // identity mapping: id N -> shade N
+        // Default LCDC 0x91: LCD+BG on, unsigned addressing.
+        let mut ppu = PixelProcessor {
+            BGP: Byte(0xE4), // identity mapping: id N -> shade N
+            ..Default::default()
+        };
 
         // Tile 1, row 0: low plane all set, high plane clear -> every pixel id 1.
         ppu.vram[TILE_SIZE] = Byte(0xFF);
@@ -595,10 +615,63 @@ mod tests {
     }
 
     #[test]
-    fn scy_selects_the_tile_row() {
+    fn cgb_background_uses_palette_ram_and_tile_attributes() {
         let mut ppu = PixelProcessor::default();
-        ppu.BGP = Byte(0xE4);
-        ppu.SCY = Byte(8); // shift the viewport down one tile
+        ppu.set_cgb_mode(true);
+
+        // Tile 1, row 0: low plane all set, high clear -> every pixel colour id 1.
+        ppu.vram[TILE_SIZE] = Byte(0xFF);
+        ppu.vram[TILE_SIZE + 1] = Byte(0x00);
+        // Map entry (0,0) -> tile 1 (bank 0); its attribute lives at the same
+        // offset in bank 1. Palette 2, no flip, tile data in bank 0.
+        ppu.vram[0x1800] = Byte(1);
+        ppu.vram[VRAM_BANK_SIZE + 0x1800] = Byte(0b0000_0010);
+
+        // Background palette 2, colour 1: pure red in BGR555 (r=0x1F) at byte
+        // offset 2*8 + 1*2 = 18, little-endian.
+        ppu.bcram[18] = Byte(0x1F);
+        ppu.bcram[19] = Byte(0x00);
+
+        ppu.render_background_line(0);
+
+        // 5-bit 0x1F expands to 8-bit 0xFF, so the pixels are opaque red.
+        for (x, pixel) in ppu.frame[0..8].iter().enumerate() {
+            assert_eq!(*pixel, 0x00FF_0000, "pixel {x} should be palette-2 red");
+        }
+    }
+
+    #[test]
+    fn cgb_background_honours_horizontal_flip() {
+        let mut ppu = PixelProcessor::default();
+        ppu.set_cgb_mode(true);
+
+        // Tile 1, row 0: only the leftmost pixel (MSB) is colour id 1.
+        ppu.vram[TILE_SIZE] = Byte(0b1000_0000);
+        ppu.vram[TILE_SIZE + 1] = Byte(0x00);
+        ppu.vram[0x1800] = Byte(1);
+        // Attribute: palette 0, horizontal flip (bit 5).
+        ppu.vram[VRAM_BANK_SIZE + 0x1800] = Byte(0b0010_0000);
+
+        // Palette 0 colour 0 (byte 0) opaque black, colour 1 (byte 2) red.
+        ppu.bcram[0] = Byte(0x00);
+        ppu.bcram[1] = Byte(0x00);
+        ppu.bcram[2] = Byte(0x1F);
+        ppu.bcram[3] = Byte(0x00);
+
+        ppu.render_background_line(0);
+
+        // Flipped, the set pixel lands at the right edge of the tile (x = 7).
+        assert_eq!(ppu.frame[7], 0x00FF_0000, "flipped set pixel at x=7");
+        assert_eq!(ppu.frame[0], 0x0000_0000, "x=0 is now colour 0");
+    }
+
+    #[test]
+    fn scy_selects_the_tile_row() {
+        let mut ppu = PixelProcessor {
+            BGP: Byte(0xE4),
+            SCY: Byte(8), // shift the viewport down one tile
+            ..Default::default()
+        };
 
         // Tile 1, row 0 -> id 1. With SCY=8, screen line 0 reads background line
         // 8, which is row 0 of the tile in map row 1.
@@ -611,8 +684,10 @@ mod tests {
 
     #[test]
     fn disabled_background_blanks_the_line() {
-        let mut ppu = PixelProcessor::default();
-        ppu.LCDC = Byte(0x90); // LCD on, but BG off (bit 0 clear)
+        let mut ppu = PixelProcessor {
+            LCDC: Byte(0x90), // LCD on, but BG off (bit 0 clear)
+            ..Default::default()
+        };
         ppu.frame[0] = SHADES[3];
 
         ppu.render_background_line(0);
@@ -649,9 +724,11 @@ mod tests {
 
     #[test]
     fn sprite_is_drawn_over_the_background() {
-        let mut ppu = PixelProcessor::default();
-        ppu.LCDC = Byte(0x93); // LCD + BG + OBJ on (bits 7,4,1,0)
-        ppu.OBP0 = Byte(0xE4); // identity palette
+        let mut ppu = PixelProcessor {
+            LCDC: Byte(0x93), // LCD + BG + OBJ on (bits 7,4,1,0)
+            OBP0: Byte(0xE4), // identity palette
+            ..Default::default()
+        };
         solid_tile(&mut ppu, 1);
         place_sprite(&mut ppu, 0, 40, 0, 1, 0x00);
 
@@ -666,9 +743,11 @@ mod tests {
 
     #[test]
     fn sprite_colour_zero_is_transparent() {
-        let mut ppu = PixelProcessor::default();
-        ppu.LCDC = Byte(0x93);
-        ppu.OBP0 = Byte(0xE4);
+        let mut ppu = PixelProcessor {
+            LCDC: Byte(0x93),
+            OBP0: Byte(0xE4),
+            ..Default::default()
+        };
         // Tile 1 row 0: only the leftmost pixel is non-zero (id 1).
         ppu.vram[TILE_SIZE] = Byte(0x80);
         place_sprite(&mut ppu, 0, 0, 0, 1, 0x00);
@@ -682,9 +761,11 @@ mod tests {
 
     #[test]
     fn priority_bit_keeps_sprite_behind_non_zero_background() {
-        let mut ppu = PixelProcessor::default();
-        ppu.LCDC = Byte(0x93);
-        ppu.OBP0 = Byte(0xE4);
+        let mut ppu = PixelProcessor {
+            LCDC: Byte(0x93),
+            OBP0: Byte(0xE4),
+            ..Default::default()
+        };
         solid_tile(&mut ppu, 1);
         place_sprite(&mut ppu, 0, 0, 0, 1, 0x80); // priority bit set
 
@@ -699,10 +780,12 @@ mod tests {
 
     #[test]
     fn lower_x_sprite_wins() {
-        let mut ppu = PixelProcessor::default();
-        ppu.LCDC = Byte(0x93);
-        ppu.OBP0 = Byte(0xE4); // id 3 -> shade 3
-        ppu.OBP1 = Byte(0x24); // id 3 -> shade 0
+        let mut ppu = PixelProcessor {
+            LCDC: Byte(0x93),
+            OBP0: Byte(0xE4), // id 3 -> shade 3
+            OBP1: Byte(0x24), // id 3 -> shade 0
+            ..Default::default()
+        };
         solid_tile(&mut ppu, 1);
         // Two overlapping sprites; the lower-X one (slot 1) must win.
         place_sprite(&mut ppu, 0, 4, 0, 1, 0x10); // higher X, OBP1

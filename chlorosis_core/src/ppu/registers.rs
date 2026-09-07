@@ -140,17 +140,22 @@ impl PixelProcessor {
             self.ocram[self.OCPS.0 as usize & 0x3F] = value;
         }
 
-        if self.BCPS.is_bit_set(7) {
-            self.BCPS = Byte((((self.BCPS.0 & 0b0011_1111) + 1) & 0b0011_1111) + 0b1000_0000);
+        // Auto-increment OCPS (not BCPS - this indexed the wrong register, so
+        // sequential OBJ palette writes all landed on the same entry).
+        if self.OCPS.is_bit_set(7) {
+            self.OCPS = Byte((((self.OCPS.0 & 0b0011_1111) + 1) & 0b0011_1111) + 0b1000_0000);
         }
     }
 
     pub const fn read_bcram(&self) -> Byte {
-        self.bcram[self.BCPS.0 as usize]
+        // BCPS carries the auto-increment flag in bit 7; only bits 0-5 index the
+        // 64-byte palette RAM, so mask before indexing or a read past 0x3F with
+        // that bit set would panic.
+        self.bcram[self.BCPS.0 as usize & 0x3F]
     }
 
     pub const fn read_ocram(&self) -> Byte {
-        self.ocram[self.OCPS.0 as usize]
+        self.ocram[self.OCPS.0 as usize & 0x3F]
     }
 }
 

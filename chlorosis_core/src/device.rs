@@ -419,6 +419,10 @@ impl Device {
             self.eram.len() / RAM_BANK_SIZE,
         );
 
+        // A CGB cartridge drives the colour renderer; a plain DMG cart keeps the
+        // greyscale path (BGP/OBP shades) it writes.
+        self.ppu.set_cgb_mode(header.is_cgb());
+
         self.cartrige = Some(header);
         self.rom_path = Some(path.to_path_buf());
         self.dump_cartrige_header();

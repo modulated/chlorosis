@@ -60,6 +60,13 @@ impl CartrigeHeader {
     pub const fn ram_size(&self) -> u32 {
         self.ram_size
     }
+
+    /// Whether the cartridge asks for CGB features (either CGB-only or
+    /// backwards-compatible). Drives the colour renderer; a plain DMG cart
+    /// (`Unknown` flag) keeps the greyscale path.
+    pub const fn is_cgb(&self) -> bool {
+        matches!(self.cgb_flag, ColorMode::BackwardsCompat | ColorMode::ColorOnly)
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion

@@ -130,7 +130,10 @@ mod tests {
         assert_eq!(taken.as_ptr(), published);
         consumer.recycle(taken);
 
-        assert_eq!(producer.acquire().as_ptr(), published);
+        // Keep the reacquired frame alive across the comparison; taking `.as_ptr()`
+        // on the temporary directly would dangle once it dropped.
+        let reacquired = producer.acquire();
+        assert_eq!(reacquired.as_ptr(), published);
     }
 
     #[test]
@@ -143,7 +146,8 @@ mod tests {
         producer.publish(producer.acquire());
 
         // The frame the frontend never collected is reused, not leaked.
-        assert_eq!(producer.acquire().as_ptr(), stale_ptr);
+        let reused = producer.acquire();
+        assert_eq!(reused.as_ptr(), stale_ptr);
         assert!(consumer.take().is_some());
     }
 }

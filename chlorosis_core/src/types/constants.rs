@@ -2,8 +2,8 @@
 // pub const BOOT_ROM_START: u16 = 0x0000;
 // pub const BOOT_ROM_END: u16 = 0x00FF;
 pub const ROM_0_START: u16 = 0x0000;
-pub const ROM_0_END: u16 = 0x3FFF;
-pub const ROM_1_START: u16 = 0x4000;
+// The fixed and switchable ROM windows (0x0000-0x3FFF and 0x4000-0x7FFF) are
+// mapped together through the MBC, so only the outer bounds are used in code.
 pub const ROM_1_END: u16 = 0x7FFF;
 pub const VRAM_START: u16 = 0x8000;
 pub const VRAM_END: u16 = 0x9FFF;
