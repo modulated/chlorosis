@@ -85,6 +85,10 @@ pub struct PixelProcessor {
     /// Colour rendering (CGB palettes + tile attributes) versus DMG greyscale.
     /// Set from the cartridge's CGB flag when a ROM loads.
     cgb_mode: bool,
+    /// The window's own line counter. Unlike the background, the window advances
+    /// only on scanlines where it is actually drawn, so it is tracked separately
+    /// from `LY` and reset each frame.
+    window_line: u8,
     pub vram: [Byte; VRAM_SIZE],
     pub vram_bank: Byte,
     pub oam: [Byte; OAM_SIZE],
@@ -128,6 +132,7 @@ impl Default for PixelProcessor {
             bg_line_ids: [0; SCREEN_WIDTH],
             bg_line_priority: [false; SCREEN_WIDTH],
             cgb_mode: false,
+            window_line: 0,
             vram: [Byte(0); VRAM_SIZE],
             vram_bank: Default::default(),
             oam: [Byte(0); OAM_SIZE],
@@ -251,6 +256,7 @@ impl PixelProcessor {
                 // per scanline (rather than once per frame) captures mid-frame
                 // scroll changes, which many games rely on.
                 self.render_background_line(self.LY.0);
+                self.render_window_line(self.LY.0);
                 self.render_sprite_line(self.LY.0);
                 if self.STAT.is_bit_set(3) {
                     requested |= Interrupts::LCD;
@@ -261,8 +267,10 @@ impl PixelProcessor {
                 if self.STAT.is_bit_set(4) {
                     requested |= Interrupts::LCD;
                 }
-                // The frame is complete; hand it to the frontend.
+                // The frame is complete; hand it to the frontend. The window's
+                // line counter restarts for the next frame.
                 self.buffer = Some(self.frame);
+                self.window_line = 0;
             }
         }
         requested
@@ -297,43 +305,107 @@ impl PixelProcessor {
         let unsigned = matches!(self.read_tile_addressing_mode(), TileAddressingMode::Unsigned);
 
         let bg_y = ly.wrapping_add(self.SCY.0) as usize;
-        let tile_row = bg_y / TILE_HEIGHT;
 
         for screen_x in 0..SCREEN_WIDTH {
             let bg_x = (screen_x as u8).wrapping_add(self.SCX.0) as usize;
-            let tile_col = bg_x / TILE_WIDTH;
-            let map_index = map_base + tile_row * MAP_WIDTH + tile_col;
-            let tile_number = self.vram[map_index].0;
-
-            // CGB tile attributes live at the same offset in VRAM bank 1.
-            let attr = if self.cgb_mode {
-                TileAttributes::from(self.vram[VRAM_BANK_SIZE + map_index])
-            } else {
-                TileAttributes::from(Byte(0))
-            };
-
-            let row_in_tile = if attr.vflip {
-                TILE_HEIGHT - 1 - (bg_y % TILE_HEIGHT)
-            } else {
-                bg_y % TILE_HEIGHT
-            };
-            let col_in_tile = bg_x % TILE_WIDTH;
-            let bit = if attr.hflip { col_in_tile } else { 7 - col_in_tile };
-
-            let bank_offset = if attr.vram_bank { VRAM_BANK_SIZE } else { 0 };
-            let plane =
-                bank_offset + tile_data_offset(tile_number, unsigned) + row_in_tile * TILE_ROW_BYTES;
-            let low = self.vram[plane].0;
-            let high = self.vram[plane + 1].0;
-            let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+            let (color_id, attr) = self.tile_pixel(map_base, bg_x, bg_y, unsigned);
 
             self.bg_line_ids[screen_x] = color_id;
             self.bg_line_priority[screen_x] = attr.priority;
-            self.frame[line_start + screen_x] = if self.cgb_mode {
-                cgb_color(&self.bcram, attr.palette, color_id)
-            } else {
-                self.bg_shade(color_id)
-            };
+            self.frame[line_start + screen_x] = self.bg_color(color_id, &attr);
+        }
+    }
+
+    /// Render the window layer over the scanline `ly`, where it is enabled and
+    /// visible. The window is a second tile map (LCDC bit 6) drawn at a fixed
+    /// screen position (`WX-7`, `WY`) with its own line counter, so it does not
+    /// scroll with the background. It counts as background for sprite priority.
+    fn render_window_line(&mut self, ly: u8) {
+        if !self.is_window_enabled() {
+            return;
+        }
+        // On DMG the window needs the BG/window master enable (LCDC bit 0); on
+        // CGB that bit is only a priority control, so the window always draws.
+        if !self.cgb_mode && !self.is_win_bg_priority() {
+            return;
+        }
+        let row = ly as usize;
+        if row >= SCREEN_HEIGHT || ly < self.WY.0 {
+            return;
+        }
+        // The window's left edge is WX-7; a WX past the screen hides it entirely.
+        let left = self.WX.0 as i16 - 7;
+        if left >= SCREEN_WIDTH as i16 {
+            return;
+        }
+
+        let map_base = *self.read_window_tile_map_area().start() as usize - VRAM_START as usize;
+        let unsigned = matches!(self.read_tile_addressing_mode(), TileAddressingMode::Unsigned);
+        let win_y = self.window_line as usize;
+        let line_start = row * SCREEN_WIDTH;
+
+        for screen_x in 0..SCREEN_WIDTH {
+            if (screen_x as i16) < left {
+                continue;
+            }
+            let win_x = (screen_x as i16 - left) as usize;
+            let (color_id, attr) = self.tile_pixel(map_base, win_x, win_y, unsigned);
+
+            self.bg_line_ids[screen_x] = color_id;
+            self.bg_line_priority[screen_x] = attr.priority;
+            self.frame[line_start + screen_x] = self.bg_color(color_id, &attr);
+        }
+        // The counter only advances on lines the window was actually drawn.
+        self.window_line = self.window_line.wrapping_add(1);
+    }
+
+    /// Fetch a background/window pixel: its 2-bit colour id and CGB attributes.
+    /// `map_base` is the VRAM-relative tile-map offset; `(px, py)` is the pixel
+    /// within the 256x256 map. On DMG the attributes are all-zero (palette 0,
+    /// bank 0, no flip), which reduces this to the plain background fetch.
+    fn tile_pixel(
+        &self,
+        map_base: usize,
+        px: usize,
+        py: usize,
+        unsigned: bool,
+    ) -> (u8, TileAttributes) {
+        let tile_row = py / TILE_HEIGHT;
+        let tile_col = px / TILE_WIDTH;
+        let map_index = map_base + tile_row * MAP_WIDTH + tile_col;
+        let tile_number = self.vram[map_index].0;
+
+        // CGB tile attributes live at the same offset in VRAM bank 1.
+        let attr = if self.cgb_mode {
+            TileAttributes::from(self.vram[VRAM_BANK_SIZE + map_index])
+        } else {
+            TileAttributes::from(Byte(0))
+        };
+
+        let row_in_tile = if attr.vflip {
+            TILE_HEIGHT - 1 - (py % TILE_HEIGHT)
+        } else {
+            py % TILE_HEIGHT
+        };
+        let col_in_tile = px % TILE_WIDTH;
+        let bit = if attr.hflip { col_in_tile } else { 7 - col_in_tile };
+
+        let bank_offset = if attr.vram_bank { VRAM_BANK_SIZE } else { 0 };
+        let plane =
+            bank_offset + tile_data_offset(tile_number, unsigned) + row_in_tile * TILE_ROW_BYTES;
+        let low = self.vram[plane].0;
+        let high = self.vram[plane + 1].0;
+        let color_id = (((high >> bit) & 1) << 1) | ((low >> bit) & 1);
+        (color_id, attr)
+    }
+
+    /// Map a background/window colour id to `0x00RRGGBB`: through `bcram` in CGB
+    /// mode, or the BGP greyscale ramp on DMG.
+    const fn bg_color(&self, color_id: u8, attr: &TileAttributes) -> u32 {
+        if self.cgb_mode {
+            cgb_color(&self.bcram, attr.palette, color_id)
+        } else {
+            self.bg_shade(color_id)
         }
     }
 

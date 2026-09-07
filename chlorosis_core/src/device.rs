@@ -920,4 +920,41 @@ mod tests {
 
         assert_eq!(dev.cpu.pc, Address(0x0101));
     }
+
+    /// Diagnostic: run the ROM at `CHLOROSIS_DUMP_ROM` for a number of frames and
+    /// write the last rendered frame to `CHLOROSIS_DUMP_PPM` (default
+    /// `frame.ppm`) as a P6 PPM. Skips unless the env var is set.
+    #[test]
+    fn dump_rom_frame() {
+        use crate::{TICKS_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
+        let Ok(path) = std::env::var("CHLOROSIS_DUMP_ROM") else {
+            eprintln!("skipping: set CHLOROSIS_DUMP_ROM to render a frame");
+            return;
+        };
+        let frames: u32 = std::env::var("CHLOROSIS_DUMP_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600);
+
+        let mut dev = Device::new();
+        dev.load_cartrige(&path).expect("load cartridge");
+
+        let mut last = [0u32; SCREEN_WIDTH * SCREEN_HEIGHT];
+        for _ in 0..frames {
+            dev.tick(TICKS_PER_FRAME);
+            if let Some(frame) = dev.ppu.take_frame() {
+                last = frame;
+            }
+        }
+
+        let out = std::env::var("CHLOROSIS_DUMP_PPM").unwrap_or_else(|_| "frame.ppm".into());
+        let mut buf = format!("P6\n{SCREEN_WIDTH} {SCREEN_HEIGHT}\n255\n").into_bytes();
+        for px in last {
+            buf.push((px >> 16) as u8);
+            buf.push((px >> 8) as u8);
+            buf.push(px as u8);
+        }
+        std::fs::write(&out, buf).expect("write ppm");
+        eprintln!("wrote {out}");
+    }
 }
