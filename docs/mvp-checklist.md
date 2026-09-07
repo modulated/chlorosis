@@ -46,12 +46,16 @@ long before the renderer is even reached. Suggested order is bottom of this file
   totals match the tables. — `cpu/mod.rs`, `device.rs`
 - [x] **`HALT` and `RETI`** implemented (they were `unimplemented!()`; HALT is in
   every main loop, RETI ends every handler). HALT idles until an enabled
-  interrupt is pending; RETI pops PC and re-enables IME. **`DAA` and the
-  IME-disabled HALT bug are still open** (part of the original item 9). —
+  interrupt is pending; RETI pops PC and re-enables IME. `DAA` is now
+  implemented too; the IME-disabled HALT bug is the only leftover. —
   `cpu/execute.rs`
-- [ ] **Opcode correctness pass.** e.g. `0x02 LD (BC),A` reads instead of
-  writing. Wants a Blargg `cpu_instrs` harness, not eyeballing. —
-  `cpu/execute.rs`
+- [x] **Opcode correctness pass.** All eleven Blargg `cpu_instrs` tests pass,
+  driven by a gameboy-doctor-style trace diff against a reference log. Fixed:
+  `to_signed` (every relative jump), 8/16-bit arithmetic wraparound, `DEC DE`,
+  ADD/ADC flags, the subtract-carry helper, `ADD A,d8`, `RRA`/`RLA` write-back,
+  `DEC E` mis-decode, the CB rotate/shift flags and A-register variants,
+  `ADD SP,e8` (wrote PC), `JP NZ` (inverted), `RET C` (popped SP), and a
+  double cost decrement. — `cpu/`
 
 ## 4. Interrupts
 
@@ -111,11 +115,14 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 8. Verification
 
-- [ ] Headless harness: run N frames against a test ROM, hash the framebuffer.
-- [ ] Blargg `cpu_instrs` and `dmg-acid2`.
-- [ ] The two unit tests already failing on `main`
-  (`cpu::arith::test::test_half_carry_sub_byte`, `types::cartrige::tests::read_header`)
-  hint at real arithmetic/header bugs.
+- [x] Headless harness: `tests/serial_harness.rs` drives a ROM through
+  `Device::tick` and reads the serial console; it runs a real Blargg ROM when
+  `CHLOROSIS_TEST_ROM` points to one, and includes a self-contained CPU→serial
+  test otherwise.
+- [x] **Blargg `cpu_instrs`: all 11 individual tests pass.** `dmg-acid2` (PPU
+  accuracy) is still untried.
+- [x] `test_half_carry_sub_byte` was a wrong assertion, now corrected;
+  `read_header` still fails only because its ROM file is absent from the repo.
 
 ---
 
@@ -129,13 +136,14 @@ first audio write or a dark LCD:
 addressing) → 14/19 (DMG background renderer) + 16 (LCDC write) → 21 (joypad) +
 4 (MBC banking)** ← done
 
-A ROM can now boot, display its background, and take input, with MBC1/3/5 games
-running past 32 KB. The MVP path is complete; what remains is breadth and
-accuracy:
+A ROM can now boot, display its background and sprites, take input, run past
+32 KB via MBC1/3/5, and pass every Blargg `cpu_instrs` test. The MVP path is
+complete and the CPU is validated; what remains is breadth and accuracy:
 
-- **Renderer follow-ons** — sprites (needs OAM DMA at `0xFF46`), the window
-  (and the item-17 tile-map range fix), and CGB `bcram` colour.
-- **9 (DAA, HALT bug)** and the **opcode correctness pass** (item 10), best
-  driven by a Blargg `cpu_instrs` harness (item 22).
-- **Accuracy leftovers** — the joypad interrupt, MBC2 / MBC3-RTC, and the
-  remaining `panic!`ing memory holes (echo RAM, `0xFF50`, item-2 group).
+- **Renderer follow-ons** — the window (and the item-17 tile-map range fix)
+  and CGB `bcram` colour. Background and sprites are done.
+- **PPU/timing accuracy** — `dmg-acid2` (rendering) and Blargg's timing tests
+  (`instr_timing`, `mem_timing`), plus CGB double-speed.
+- **Accuracy leftovers** — the joypad interrupt, the IME-disabled HALT bug,
+  MBC2 / MBC3-RTC, audio, and the `panic!`ing memory holes still left in the
+  IO map (`0xFF50`, and the prohibited `0xFF03`/`0xFF08-0E`/etc. ranges).
