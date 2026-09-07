@@ -35,8 +35,9 @@ long before the renderer is even reached. Suggested order is bottom of this file
   instructions. Stubbed: writes stored, reads returned. — `device.rs`
 - [ ] **`0xFF50` (boot-ROM disable), `0xFF4C`, `0xFF4E`** route into
   `ppu.read_io/write_io`, which `unreachable!()`s on anything unlisted.
-- [ ] **Echo RAM `0xE000-0xFDFF` and `0xFEA0-0xFEFF` `panic!`** — should mirror
-  WRAM / return `0xFF`.
+- [x] **Echo RAM `0xE000-0xFDFF` and `0xFEA0-0xFEFF`** — echo now mirrors WRAM
+  `0x2000` below it (read and write); the unusable region reads `0xFF` and drops
+  writes instead of panicking. — `device.rs`
 
 ## 3. CPU
 
@@ -70,12 +71,12 @@ long before the renderer is even reached. Suggested order is bottom of this file
 
 ## 5. PPU — the actual rendering
 
-- [x] **Background renderer.** On entering HBlank the scanline is drawn into a
-  working frame; on entering VBlank the frame is published to the frontend.
-  Background only for now — no window, no sprites, VRAM bank 0 — using SCX/SCY
-  scroll, both tile-addressing modes, and honouring BG-enable (LCDC bit 0).
-  **Sprites, the window, and the cycle-accurate pixel FIFO are the follow-ons.**
-  — `ppu/mod.rs::render_background_line`
+- [x] **Background, sprite, and window renderers.** On entering HBlank the
+  scanline is drawn into a working frame (background, then window, then
+  sprites); on entering VBlank the frame is published. Uses SCX/SCY scroll,
+  both tile-addressing modes, and honours BG-enable (LCDC bit 0). The window is
+  drawn at its WX/WY position with its own line counter. **The cycle-accurate
+  pixel FIFO is the remaining follow-on.** — `ppu/mod.rs`
 - [x] **Mode state machine (timing).** LY runs 0-153 and the mode cycles
   OAM(80)→Draw(172)→HBlank per visible line, VBlank at 144, driven per dot. This
   is what makes VBlank/STAT interrupts fire and drives the renderer. The Draw
@@ -84,16 +85,17 @@ long before the renderer is even reached. Suggested order is bottom of this file
   directly; it used to mask bit 7 off and reconstruct it from an inverted
   condition, so clearing bit 7 outside VBlank turned the LCD on. —
   `ppu/registers.rs`
-- [ ] **Tile-map area ranges disagree** — background returns VRAM-relative
-  `0x1C00..` (which the renderer uses), window returns absolute `0x9C00..`. Fix
-  when the window is rendered. — `ppu/registers.rs`
+- [x] **Tile-map area ranges disagree** — background returns VRAM-relative
+  `0x1C00..`, window returns absolute `0x9C00..`. The window renderer subtracts
+  `VRAM_START` so both index VRAM correctly. — `ppu/registers.rs`, `ppu/mod.rs`
 - [x] **VRAM/OAM guards inverted and fatal.** `read_vram` panicked when the LCD
   was *enabled*; writes panicked outside HBlank/VBlank. Now keyed on the correct
   inaccessible modes (Draw for VRAM; OAM+Draw for OAM) and non-fatal: blocked
   reads return `0xFF`, blocked writes are ignored. — `ppu/mod.rs`
-- [x] **Pixel path (DMG).** The renderer maps BGP through a 4-shade greyscale
-  ramp to minifb's `0x00RRGGBB`. CGB `bcram`/`ocram` BGR555 colour is a
-  follow-on. — `ppu/mod.rs`
+- [x] **Pixel path (DMG and CGB).** DMG maps BGP/OBP through a 4-shade greyscale
+  ramp; CGB colour reads the per-tile attributes from VRAM bank 1 (palette,
+  bank, flip, priority) and maps `bcram`/`ocram` BGR555 to `0x00RRGGBB`. The
+  renderer is chosen from the cartridge CGB flag on load. — `ppu/mod.rs`
 
 ## 6. Boot state
 
@@ -136,14 +138,23 @@ first audio write or a dark LCD:
 addressing) → 14/19 (DMG background renderer) + 16 (LCDC write) → 21 (joypad) +
 4 (MBC banking)** ← done
 
-A ROM can now boot, display its background and sprites, take input, run past
-32 KB via MBC1/3/5, and pass every Blargg `cpu_instrs` test. The MVP path is
-complete and the CPU is validated; what remains is breadth and accuracy:
+A ROM can now boot, display its background, window, and sprites in DMG
+greyscale or CGB colour, take input, run past 32 KB via MBC1/3/5, save state
+and restore, keep battery-backed RAM across runs, and pass every Blargg
+`cpu_instrs` test. The MVP path is complete and the CPU is validated; what
+remains is breadth and accuracy:
 
-- **Renderer follow-ons** — the window (and the item-17 tile-map range fix)
-  and CGB `bcram` colour. Background and sprites are done.
-- **PPU/timing accuracy** — `dmg-acid2` (rendering) and Blargg's timing tests
-  (`instr_timing`, `mem_timing`), plus CGB double-speed.
+- **Renderer follow-on** — the cycle-accurate pixel FIFO. Background, window,
+  sprites, and CGB colour (verified against `cgb-acid2`) are done.
+- **PPU/timing accuracy** — Blargg's timing tests (`instr_timing`,
+  `mem_timing`), and CGB double-speed.
 - **Accuracy leftovers** — the joypad interrupt, the IME-disabled HALT bug,
   MBC2 / MBC3-RTC, audio, and the `panic!`ing memory holes still left in the
-  IO map (`0xFF50`, and the prohibited `0xFF03`/`0xFF08-0E`/etc. ranges).
+  IO map: the boot-ROM/CGB-mode registers `0xFF50`/`0xFF4C`/`0xFF4E` and the
+  prohibited `0xFF03`/`0xFF08-0E`/etc. ranges all reach `ppu::write_io`'s
+  `unreachable!()`. A CGB game writing `0xFF4C` would fault the core.
+
+Since this list was written, the window layer, the CGB colour renderer, the
+tile-map range fix, echo RAM, **save states** (with slot/quick keys and a
+validated file format), and **battery-backed `.sav` persistence** have all
+landed — the last two were originally out of scope for the MVP.
