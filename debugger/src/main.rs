@@ -189,27 +189,30 @@ impl Ui {
     }
 
     fn refresh_title(&mut self, window: &mut Window) {
+        // "Chlorosis - <ROM title> - <x>%". The trailing segment falls back to
+        // the emulator state when there is no live speed reading (paused, or a
+        // fault), so the title never claims a percentage it does not have.
         self.title.clear();
-        self.title.push_str("Chlorosis - Debugger");
+        self.title.push_str("Chlorosis");
 
         if let Some(cartridge) = &self.cartridge {
             self.title.push_str(" - ");
             self.title.push_str(cartridge);
         }
 
-        self.title.push_str(match self.state {
-            EmulatorState::Stopped => " [no cartrige]",
-            EmulatorState::Running => " [running]",
-            EmulatorState::Paused => " [paused]",
-        });
-
         if let Some(fault) = &self.fault {
-            self.title.push_str(" [faulted: ");
+            self.title.push_str(" - faulted: ");
             self.title.push_str(fault);
-            self.title.push(']');
-        } else if let Some(percent) = self.speed {
-            self.title
-                .push_str(&format!(" - {percent:.0}% of real hardware"));
+        } else {
+            match self.state {
+                EmulatorState::Stopped => {}
+                EmulatorState::Paused => self.title.push_str(" - paused"),
+                EmulatorState::Running => {
+                    if let Some(percent) = self.speed {
+                        self.title.push_str(&format!(" - {percent:.0}%"));
+                    }
+                }
+            }
         }
 
         // A window title cannot contain NUL or other control bytes - minifb
@@ -227,7 +230,7 @@ impl Ui {
 
 fn build_window() -> Window {
     let mut window = Window::new(
-        "Chlorosis - Debugger",
+        "Chlorosis",
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
         WindowOptions {
