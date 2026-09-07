@@ -31,6 +31,11 @@ Load State** (or Cmd/Ctrl + S / L) write and read a `.chl` file you choose;
 is rejected with a message if the file is not a save state, was written by an
 incompatible build, or belongs to a different ROM.
 
+Cartridges with battery-backed RAM (the in-game save of most RPGs) persist
+that RAM to a `<rom>.sav` file automatically: it is written when the emulator
+exits and when the cartridge is reset or swapped, and read back the next time
+the ROM is loaded.
+
 The game bindings are rebindable: copy `debugger/keymap.conf.example` to
 `keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
 a file), and edit it. The format is documented in the example.

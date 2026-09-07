@@ -140,7 +140,13 @@ impl Device {
     /// reported before the thread winds down.
     pub fn run(&mut self, channels: CoreChannels) {
         let messages = channels.messages.clone();
-        if let Err(panic) = catch_unwind(AssertUnwindSafe(|| self.run_loop(&channels))) {
+        let result = catch_unwind(AssertUnwindSafe(|| self.run_loop(&channels)));
+
+        // Persist battery-backed RAM on the way out - a clean shutdown or a
+        // fault both end here, so progress is saved either way.
+        self.flush_battery();
+
+        if let Err(panic) = result {
             // The frontend may already be gone, in which case there is nobody
             // left to tell and nothing to do about it.
             let _ = messages.send(CoreMessage::Faulted(describe_panic(panic.as_ref())));
@@ -342,6 +348,8 @@ impl Device {
     }
 
     fn handle_load_file(&mut self, path: &std::path::Path, channels: &CoreChannels) {
+        // Save the outgoing cartridge's RAM before its ROM/path is replaced.
+        self.flush_battery();
         match self.load_cartrige(path) {
             Ok(()) => {
                 let title = self
@@ -418,8 +426,11 @@ impl Device {
         self.state
     }
 
-    /// Restore power on state, keeping whatever cartridge is inserted.
+    /// Restore power on state, keeping whatever cartridge is inserted. Battery
+    /// RAM is flushed first and reloaded when the cartridge loads again, so a
+    /// reset persists save data the way a real power cycle does.
     fn reset(&mut self) -> Result<(), std::io::Error> {
+        self.flush_battery();
         let rom = self.rom_path.clone();
         *self = Self::new();
         rom.map_or(Ok(()), |rom| self.load_cartrige(rom))
@@ -477,6 +488,10 @@ impl Device {
 
         self.cartrige = Some(header);
         self.rom_path = Some(path.to_path_buf());
+
+        // Restore battery-backed save RAM for this cartridge, if any.
+        self.load_battery();
+
         self.dump_cartrige_header();
 
         Ok(())
@@ -561,6 +576,69 @@ impl Device {
             name.push(format!(".{slot}.chl"));
             PathBuf::from(name)
         })
+    }
+
+    /// The battery-backed save-RAM file for the current ROM: `<rom>.sav`.
+    fn battery_path(&self) -> Option<PathBuf> {
+        self.rom_path.as_ref().map(|rom| {
+            let mut name = rom.as_os_str().to_owned();
+            name.push(".sav");
+            PathBuf::from(name)
+        })
+    }
+
+    /// Whether the loaded cartridge type (header `0x0147`) has battery-backed
+    /// RAM, i.e. RAM that persists with the power off and so is worth a `.sav`.
+    fn has_battery(&self) -> bool {
+        matches!(
+            self.rom.get(0x0147).map_or(0, |b| b.0),
+            // MBC1/2/3/5 +RAM+BATTERY and the battery-backed ROM/MMM01/HuC types.
+            0x03 | 0x06 | 0x09 | 0x0D | 0x0F | 0x10 | 0x13 | 0x1B | 0x1E | 0x22 | 0xFF
+        )
+    }
+
+    /// Load `<rom>.sav` into external RAM if this cart has a battery and the file
+    /// exists and matches the RAM size. A missing file (a brand-new save) or a
+    /// mismatched one is ignored, so the game just starts with blank RAM.
+    fn load_battery(&mut self) {
+        if !self.has_battery() || self.eram.is_empty() {
+            return;
+        }
+        let Some(path) = self.battery_path() else {
+            return;
+        };
+        match std::fs::read(&path) {
+            Ok(bytes) if bytes.len() == self.eram.len() => {
+                self.eram = bytes.into_iter().map(Byte).collect();
+                println!("Loaded battery RAM from {}", path.display());
+            }
+            Ok(bytes) => eprintln!(
+                "Ignoring {}: {} bytes of save RAM, expected {}",
+                path.display(),
+                bytes.len(),
+                self.eram.len()
+            ),
+            // No file yet is the normal case for a fresh cartridge.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("Could not read {}: {e}", path.display()),
+        }
+    }
+
+    /// Write external RAM out to `<rom>.sav` if this cart has a battery. Called
+    /// on shutdown and before swapping or resetting a cartridge, so progress
+    /// survives across runs. Errors are logged, never fatal.
+    pub fn flush_battery(&self) {
+        if !self.has_battery() || self.eram.is_empty() {
+            return;
+        }
+        let Some(path) = self.battery_path() else {
+            return;
+        };
+        let bytes: Vec<u8> = self.eram.iter().map(|b| b.0).collect();
+        match std::fs::write(&path, bytes) {
+            Ok(()) => println!("Saved battery RAM to {}", path.display()),
+            Err(e) => eprintln!("Could not write {}: {e}", path.display()),
+        }
     }
 
     /// Bytes the ROM has shifted out of the serial port - its console output,
@@ -1226,5 +1304,65 @@ mod tests {
         let slot = dev.slot_path(0).expect("rom path known");
         let expected = format!("{}.0.chl", rom.path().display());
         assert_eq!(slot.to_string_lossy(), expected);
+    }
+
+    /// A `Device` with a minimal battery-backed MBC1 (+RAM+BATTERY) ROM loaded,
+    /// sized for one 8 KB RAM bank.
+    fn device_with_battery_rom() -> (Device, tempfile::NamedTempFile) {
+        use std::io::Write;
+        let mut rom = vec![0u8; ROM_BANK_SIZE * 2];
+        rom[0x0147] = 0x03; // MBC1 + RAM + BATTERY
+        rom[0x0148] = 0x00; // ROM size: 32 KB
+        rom[0x0149] = 0x02; // RAM size: 8 KB
+
+        let mut file = tempfile::NamedTempFile::new().expect("temp rom");
+        file.write_all(&rom).expect("write rom");
+        file.flush().expect("flush rom");
+
+        let mut dev = Device::new();
+        dev.load_cartrige(file.path()).expect("load");
+        (dev, file)
+    }
+
+    #[test]
+    fn battery_ram_detection() {
+        let (battery, _b) = device_with_battery_rom();
+        assert!(battery.has_battery(), "MBC1+RAM+BATTERY has a battery");
+
+        let (plain, _p) = device_with_rom(0x1234); // ROM ONLY (0x00)
+        assert!(!plain.has_battery(), "ROM ONLY has no battery");
+    }
+
+    #[test]
+    fn battery_ram_persists_across_a_reload() {
+        let (mut dev, rom) = device_with_battery_rom();
+        let sav = dev.battery_path().expect("rom path known");
+
+        // Enable RAM and write a recognizable byte, then flush to the .sav.
+        dev.write(Address(0x0000), Byte(0x0A)); // RAM enable
+        dev.write(Address(0xA042), Byte(0x77));
+        dev.flush_battery();
+        assert!(sav.exists(), "a .sav was written");
+
+        // A fresh machine loading the same ROM restores that RAM.
+        let mut fresh = Device::new();
+        fresh.load_cartrige(rom.path()).expect("load");
+        fresh.write(Address(0x0000), Byte(0x0A)); // RAM enable
+        assert_eq!(fresh.read(Address(0xA042)), Byte(0x77), "save RAM restored");
+
+        std::fs::remove_file(&sav).ok();
+    }
+
+    #[test]
+    fn a_romless_cartridge_writes_no_sav() {
+        // ROM ONLY: flush_battery must be a no-op, leaving no file behind.
+        let (mut dev, _rom) = device_with_rom(0x1234);
+        dev.write(Address(0x0000), Byte(0x0A));
+        dev.write(Address(0xA000), Byte(0x55));
+        dev.flush_battery();
+        assert!(
+            !dev.battery_path().expect("rom path").exists(),
+            "no .sav for a battery-less cart"
+        );
     }
 }
