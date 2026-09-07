@@ -72,7 +72,7 @@ impl Timer {
         Byte((self.system_counter >> 8) as u8)
     }
 
-    pub fn write_divider(&mut self, _: Byte) {
+    pub const fn write_divider(&mut self, _: Byte) {
         // Any write resets the whole internal counter, not just the DIV byte.
         self.system_counter = 0;
     }
@@ -81,7 +81,7 @@ impl Timer {
         self.counter
     }
 
-    pub fn write_counter(&mut self, value: Byte) {
+    pub const fn write_counter(&mut self, value: Byte) {
         self.counter = value;
     }
 
@@ -89,11 +89,11 @@ impl Timer {
         self.modulo
     }
 
-    pub fn write_modulo(&mut self, value: Byte) {
+    pub const fn write_modulo(&mut self, value: Byte) {
         self.modulo = value;
     }
 
-    pub fn read_control(&self) -> Byte {
+    pub const fn read_control(&self) -> Byte {
         let mut out = Byte(0);
         out.write_bit(2, self.enabled);
         match self.clock_speed {

@@ -129,7 +129,7 @@ impl From<CartrigeHeaderRaw> for CartrigeHeader {
             licensee_name: value.get_licensee_name(),
             licensee_code: value.get_licensee_code(),
             sgb_flag: value.sgb_flag.into(),
-            mbc_type: unsafe { transmute(value.mbc_type) },
+            mbc_type: unsafe { transmute::<u8, MemoryBankControllerType>(value.mbc_type) },
             rom_size: get_rom_size(value.rom_size),
             rom_banks: (get_rom_size(value.rom_size) / 0x4000) as u16,
             ram_size: get_ram_size(value.ram_size),

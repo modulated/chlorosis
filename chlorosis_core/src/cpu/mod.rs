@@ -67,8 +67,7 @@ impl CentralProcessor {
     pub fn new() -> Self {
         Default::default()
     }
-    pub fn read_f(&self) -> Byte {
-        // TODO: may be able to make const?
+    pub const fn read_f(&self) -> Byte {
         let mut b = Byte(0x0);
         b.write_bit(7, self.z_flag);
         b.write_bit(6, self.n_flag);
@@ -89,36 +88,36 @@ impl CentralProcessor {
         Address(((self.h.0 as u16) << 8) + self.l.0 as u16)
     }
 
-    pub fn read_af(&self) -> Address {
+    pub const fn read_af(&self) -> Address {
         Address(((self.a.0 as u16) << 8) + self.read_f().0 as u16)
     }
 
-    fn write_f(&mut self, val: Byte) {
+    const fn write_f(&mut self, val: Byte) {
         self.z_flag = val.is_bit_set(7);
         self.n_flag = val.is_bit_set(6);
         self.h_flag = val.is_bit_set(5);
         self.c_flag = val.is_bit_set(4);
     }
 
-    fn write_bc(&mut self, addr: Address) {
+    const fn write_bc(&mut self, addr: Address) {
         let (b, c) = addr.split();
         self.b = b;
         self.c = c;
     }
 
-    fn write_de(&mut self, addr: Address) {
+    const fn write_de(&mut self, addr: Address) {
         let (d, e) = addr.split();
         self.d = d;
         self.e = e;
     }
 
-    fn write_hl(&mut self, addr: Address) {
+    const fn write_hl(&mut self, addr: Address) {
         let (h, l) = addr.split();
         self.h = h;
         self.l = l;
     }
 
-    fn write_af(&mut self, addr: Address) {
+    const fn write_af(&mut self, addr: Address) {
         let (a, f) = addr.split();
         self.a = a;
         self.write_f(f);

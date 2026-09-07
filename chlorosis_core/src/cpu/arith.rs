@@ -4,7 +4,7 @@ use super::CentralProcessor;
 
 impl CentralProcessor {
     #[inline(always)]
-    pub fn clear_flags(&mut self) {
+    pub const fn clear_flags(&mut self) {
         self.z_flag = false;
         self.n_flag = false;
         self.h_flag = false;
@@ -12,7 +12,7 @@ impl CentralProcessor {
     }
 
     #[inline(always)]
-    pub fn check_zero(&mut self, val: Byte) {
+    pub const fn check_zero(&mut self, val: Byte) {
         self.z_flag = val.0 == 0;
     }
 
@@ -43,7 +43,7 @@ impl CentralProcessor {
     }
 
     #[inline(always)]
-    pub fn sub(&mut self, val: Byte) {
+    pub const fn sub(&mut self, val: Byte) {
         let a = self.a.0;
         self.h_flag = (a & 0xF) < (val.0 & 0xF);
         self.c_flag = a < val.0;
@@ -64,7 +64,7 @@ impl CentralProcessor {
     }
 
     #[inline(always)]
-    pub fn cp(&mut self, val: Byte) {
+    pub const fn cp(&mut self, val: Byte) {
         let prev = self.a;
         self.sub(val);
         self.a = prev;
@@ -186,33 +186,33 @@ impl CentralProcessor {
     }
 
     #[inline(always)]
-    pub fn bit(&mut self, pos: u8, val: Byte) {
+    pub const fn bit(&mut self, pos: u8, val: Byte) {
         self.z_flag = !val.is_bit_set(pos);
         self.n_flag = false;
         self.h_flag = true;
     }
 
     #[inline(always)]
-    pub fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
+    pub const fn check_carry_add_byte(&mut self, a: Byte, b: Byte) {
         let res = a.0.wrapping_add(b.0);
         self.c_flag = (res < a.0) || (res < b.0);
     }
 
     #[inline(always)]
-    pub fn check_carry_add_address(&mut self, a: Address, b: Address) {
+    pub const fn check_carry_add_address(&mut self, a: Address, b: Address) {
         let res = a.0.wrapping_add(b.0);
         self.c_flag = (res < a.0) || (res < b.0)
     }
 
     #[inline(always)]
-    pub fn check_carry_sub_address(&mut self, a: Address, b: Address) {
+    pub const fn check_carry_sub_address(&mut self, a: Address, b: Address) {
         // A subtraction borrows exactly when the minuend is smaller. The old
         // `res > b` term also flagged cases like 0xFF - 0x01 that do not borrow.
         self.c_flag = a.0 < b.0;
     }
 
     #[inline(always)]
-    pub fn check_carry_signed_address(&mut self, a: Address, b: SignedByte) {
+    pub const fn check_carry_signed_address(&mut self, a: Address, b: SignedByte) {
         if b.0 >= 0 {
             let b = Address(b.0 as u16);
             self.check_carry_add_address(a, b)
@@ -223,22 +223,22 @@ impl CentralProcessor {
     }
 
     #[inline(always)]
-    pub fn check_half_carry_add_byte(&mut self, a: Byte, b: Byte) {
+    pub const fn check_half_carry_add_byte(&mut self, a: Byte, b: Byte) {
         self.h_flag = (a.0 & 0xF) + (b.0 & 0xF) > 0xF;
     }
 
     #[inline(always)]
-    pub fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
+    pub const fn check_half_carry_add_address(&mut self, a: Address, b: Address) {
         self.h_flag = (((a.0 & 0xFFF).wrapping_add(b.0 & 0xFFF)) & 0x1000) == 0x1000;
     }
 
     #[inline(always)]
-    pub fn check_half_carry_sub_byte(&mut self, a: Byte, b: Byte) {
+    pub const fn check_half_carry_sub_byte(&mut self, a: Byte, b: Byte) {
         self.h_flag = (a.0 & 0xF) < (b.0 & 0xF);
     }
 
     #[inline(always)]
-    pub fn check_carry_sub_byte(&mut self, a: Byte, b: Byte) {
+    pub const fn check_carry_sub_byte(&mut self, a: Byte, b: Byte) {
         self.c_flag = a.0 < b.0;
     }
 }

@@ -15,17 +15,17 @@ impl Byte {
         self.0 & mask != 0
     }
 
-    pub fn set_bit(&mut self, n: u8) {
+    pub const fn set_bit(&mut self, n: u8) {
         let mask = 1 << n;
         self.0 |= mask;
     }
 
-    pub fn clear_bit(&mut self, n: u8) {
+    pub const fn clear_bit(&mut self, n: u8) {
         let mask = !(1 << n);
         self.0 &= mask;
     }
 
-    pub fn write_bit(&mut self, n: u8, set: bool) {
+    pub const fn write_bit(&mut self, n: u8, set: bool) {
         if set {
             self.0 |= 1 << n;
         } else {

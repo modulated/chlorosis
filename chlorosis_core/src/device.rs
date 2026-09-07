@@ -184,10 +184,10 @@ impl Device {
         self.tick(TICKS_PER_FRAME);
         self.publish_frame(channels);
 
-        if let Some(report) = pacer.frame_completed() {
-            if channels.messages.send(report).is_err() {
-                return Control::Shutdown;
-            }
+        if let Some(report) = pacer.frame_completed()
+            && channels.messages.send(report).is_err()
+        {
+            return Control::Shutdown;
         }
 
         Control::Continue
@@ -533,10 +533,10 @@ impl Device {
             }
             // External cartridge RAM, if mapped and enabled; dropped otherwise.
             ERAM_START..=ERAM_END => {
-                if let Some(offset) = self.mbc.ram_offset(address.0) {
-                    if let Some(cell) = self.eram.get_mut(offset) {
-                        *cell = value;
-                    }
+                if let Some(offset) = self.mbc.ram_offset(address.0)
+                    && let Some(cell) = self.eram.get_mut(offset)
+                {
+                    *cell = value;
                 }
             }
             WRAM_0_START..=WRAM_0_END => self.wram[address - Address(WRAM_0_START)] = value,
