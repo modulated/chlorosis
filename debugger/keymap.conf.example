@@ -1,0 +1,22 @@
+# Chlorosis key bindings.
+#
+# Copy this file to `keymap.conf` in the directory you run the emulator from,
+# or point CHLOROSIS_KEYMAP at it, then edit the bindings below.
+#
+# Format:  button = key[, key ...]
+#   buttons: up down left right a b start select
+#   keys:    single letters (a-z), digits (0-9), or names:
+#            up down left right enter space backspace tab
+#            lshift rshift lctrl rctrl comma period slash semicolon apostrophe
+#
+# Listing this file with any valid binding replaces the built-in defaults, so
+# include every button you want bound. The defaults are:
+
+up     = up, w
+down   = down, s
+left   = left, a
+right  = right, d
+a      = x
+b      = z
+start  = enter
+select = backspace, rshift

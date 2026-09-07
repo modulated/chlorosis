@@ -59,6 +59,7 @@ struct Ui {
     cartridge: Option<String>,
     speed: Option<f32>,
     fault: Option<String>,
+    keymap: Keymap,
     quitting: bool,
 }
 
@@ -72,6 +73,7 @@ impl Ui {
             cartridge: None,
             speed: None,
             fault: None,
+            keymap: Keymap::load(),
             quitting: false,
         }
     }
@@ -141,12 +143,12 @@ impl Ui {
 
         // Press and release go out as they happen rather than being batched
         // into one poll, so the emulator sees the same edges the player made.
-        let down: Vec<KeyCode> = pressed.iter().filter_map(key_to_keycode).collect();
+        let down: Vec<KeyCode> = pressed.iter().filter_map(|k| self.keymap.button(k)).collect();
         if !down.is_empty() {
             let _ = events.send(Event::KeyDown(down));
         }
 
-        let up: Vec<KeyCode> = released.iter().filter_map(key_to_keycode).collect();
+        let up: Vec<KeyCode> = released.iter().filter_map(|k| self.keymap.button(k)).collect();
         if !up.is_empty() {
             let _ = events.send(Event::KeyUp(up));
         }
@@ -256,17 +258,144 @@ fn build_window() -> Window {
     window
 }
 
-const fn key_to_keycode(k: &Key) -> Option<KeyCode> {
-    match k {
-        Key::W => Some(KeyCode::Up),
-        Key::S => Some(KeyCode::Down),
-        Key::A => Some(KeyCode::Left),
-        Key::D => Some(KeyCode::Right),
-        Key::O => Some(KeyCode::A),
-        Key::P => Some(KeyCode::B),
-        Key::Enter => Some(KeyCode::Start),
-        Key::RightShift => Some(KeyCode::Select),
+/// Maps host keys to Game Boy buttons. Several keys may map to one button
+/// (arrows and WASD both drive the D-pad by default), and the bindings can be
+/// overridden by a config file - see [`Keymap::load`].
+struct Keymap {
+    bindings: Vec<(Key, KeyCode)>,
+}
 
+impl Keymap {
+    fn default_bindings() -> Vec<(Key, KeyCode)> {
+        use KeyCode::{Down, Left, Right, Select, Start, Up, A, B};
+        vec![
+            (Key::Up, Up),
+            (Key::W, Up),
+            (Key::Down, Down),
+            (Key::S, Down),
+            (Key::Left, Left),
+            (Key::A, Left),
+            (Key::Right, Right),
+            (Key::D, Right),
+            (Key::X, A),
+            (Key::Z, B),
+            (Key::Enter, Start),
+            (Key::Backspace, Select),
+            (Key::RightShift, Select),
+        ]
+    }
+
+    /// Load bindings, overriding the defaults from a config file when one is
+    /// present. The path comes from `CHLOROSIS_KEYMAP`, else `keymap.conf` in
+    /// the working directory. Each line is `button = key[, key ...]`; buttons
+    /// are up/down/left/right/a/b/start/select and keys are names like `x`,
+    /// `left`, `space`, `rshift`. A `#` starts a comment. A file with any valid
+    /// binding replaces the defaults entirely, so it fully describes the layout.
+    fn load() -> Self {
+        let path = std::env::var_os("CHLOROSIS_KEYMAP").map_or_else(
+            || std::path::PathBuf::from("keymap.conf"),
+            std::path::PathBuf::from,
+        );
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self {
+                bindings: Self::default_bindings(),
+            };
+        };
+
+        let mut bindings = Vec::new();
+        for (n, line) in text.lines().enumerate() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((button, keys)) = line.split_once('=') else {
+                eprintln!("keymap.conf line {}: expected `button = key`", n + 1);
+                continue;
+            };
+            let Some(code) = parse_button(button.trim()) else {
+                eprintln!("keymap.conf line {}: unknown button `{}`", n + 1, button.trim());
+                continue;
+            };
+            for name in keys.split(',') {
+                let name = name.trim();
+                if let Some(key) = parse_key(name) {
+                    bindings.push((key, code));
+                } else {
+                    eprintln!("keymap.conf line {}: unknown key `{name}`", n + 1);
+                }
+            }
+        }
+
+        if bindings.is_empty() {
+            eprintln!("keymap.conf had no valid bindings; using defaults");
+            bindings = Self::default_bindings();
+        }
+        Self { bindings }
+    }
+
+    fn button(&self, key: &Key) -> Option<KeyCode> {
+        self.bindings
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, code)| *code)
+    }
+}
+
+fn parse_button(name: &str) -> Option<KeyCode> {
+    match name.to_ascii_lowercase().as_str() {
+        "up" => Some(KeyCode::Up),
+        "down" => Some(KeyCode::Down),
+        "left" => Some(KeyCode::Left),
+        "right" => Some(KeyCode::Right),
+        "a" => Some(KeyCode::A),
+        "b" => Some(KeyCode::B),
+        "start" => Some(KeyCode::Start),
+        "select" => Some(KeyCode::Select),
         _ => None,
     }
 }
+
+/// Resolve a key name from the config file to a minifb key. Single letters and
+/// digits map directly; a handful of named keys cover the rest.
+fn parse_key(name: &str) -> Option<Key> {
+    let lower = name.to_ascii_lowercase();
+    if let [c] = lower.as_bytes() {
+        return match c {
+            b'a'..=b'z' => Some(LETTERS[(c - b'a') as usize]),
+            b'0'..=b'9' => Some(DIGITS[(c - b'0') as usize]),
+            _ => None,
+        };
+    }
+    match lower.as_str() {
+        "up" => Some(Key::Up),
+        "down" => Some(Key::Down),
+        "left" => Some(Key::Left),
+        "right" => Some(Key::Right),
+        "enter" | "return" => Some(Key::Enter),
+        "space" => Some(Key::Space),
+        "backspace" => Some(Key::Backspace),
+        "tab" => Some(Key::Tab),
+        "lshift" | "leftshift" => Some(Key::LeftShift),
+        "rshift" | "rightshift" => Some(Key::RightShift),
+        "lctrl" | "leftctrl" => Some(Key::LeftCtrl),
+        "rctrl" | "rightctrl" => Some(Key::RightCtrl),
+        "comma" => Some(Key::Comma),
+        "period" => Some(Key::Period),
+        "slash" => Some(Key::Slash),
+        "semicolon" => Some(Key::Semicolon),
+        "apostrophe" => Some(Key::Apostrophe),
+        _ => None,
+    }
+}
+
+#[rustfmt::skip]
+const LETTERS: [Key; 26] = [
+    Key::A, Key::B, Key::C, Key::D, Key::E, Key::F, Key::G, Key::H, Key::I, Key::J, Key::K, Key::L,
+    Key::M, Key::N, Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T, Key::U, Key::V, Key::W, Key::X,
+    Key::Y, Key::Z,
+];
+#[rustfmt::skip]
+const DIGITS: [Key; 10] = [
+    Key::Key0, Key::Key1, Key::Key2, Key::Key3, Key::Key4,
+    Key::Key5, Key::Key6, Key::Key7, Key::Key8, Key::Key9,
+];

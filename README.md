@@ -1,6 +1,26 @@
 # Chlorosis
 Gameboy and Gameboy Color emulator
 
+## Controls
+
+Default key bindings:
+
+| Key | Button |
+| --- | --- |
+| Arrow keys / W A S D | D-pad |
+| X | A |
+| Z | B |
+| Enter | Start |
+| Backspace / Right Shift | Select |
+| Space | Pause / resume |
+| `.` | Step one frame (while paused) |
+| Esc | Quit |
+| Cmd/Ctrl + O | Open ROM |
+
+The game bindings are rebindable: copy `debugger/keymap.conf.example` to
+`keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
+a file), and edit it. The format is documented in the example.
+
 ## Architecture
 
 The emulator and the window run on separate threads and never block on each
