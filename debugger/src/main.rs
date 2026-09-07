@@ -11,10 +11,17 @@ use chlorosis_core::{
     channels, framebuffer::blank_frame, CoreMessage, Device, EmulatorState, Event, Frame,
     FrameConsumer, KeyCode, SCREEN_HEIGHT, SCREEN_WIDTH, TICKS_PER_FRAME,
 };
-use minifb::{Key, Menu, Window, WindowOptions, MENU_KEY_CTRL};
+use minifb::{Key, Menu, Window, WindowOptions};
 
 const MENU_OPEN_ROM: usize = 1;
 const MENU_RESET: usize = 2;
+
+/// Modifier for menu shortcuts: Command on macOS (the platform convention),
+/// Control elsewhere.
+#[cfg(target_os = "macos")]
+const MENU_MODIFIER: usize = minifb::MENU_KEY_COMMAND;
+#[cfg(not(target_os = "macos"))]
+const MENU_MODIFIER: usize = minifb::MENU_KEY_CTRL;
 
 fn main() {
     let mut window = build_window();
@@ -113,7 +120,7 @@ impl Ui {
         }
 
         if let Some(item) = window.is_menu_pressed() {
-            self.handle_menu(item, events);
+            self.handle_menu(item, window, events);
         }
 
         let pressed = window.get_keys_pressed(minifb::KeyRepeat::No);
@@ -145,14 +152,22 @@ impl Ui {
         }
     }
 
-    fn handle_menu(&mut self, item: usize, events: &std::sync::mpsc::Sender<Event>) {
+    fn handle_menu(
+        &mut self,
+        item: usize,
+        window: &Window,
+        events: &std::sync::mpsc::Sender<Event>,
+    ) {
         match item {
             MENU_OPEN_ROM => {
                 // This blocks the frontend for as long as the dialog is up. The
                 // emulator keeps running behind it, which is the point of the
-                // split.
+                // split. The dialog is parented to the window so it comes to the
+                // front rather than opening behind it - which, unbundled on
+                // macOS, otherwise just looks like the window losing focus.
                 let file = native_dialog::DialogBuilder::file()
                     .add_filter("GBC ROM", ["gbc", "gb"])
+                    .set_owner(window)
                     .open_single_file()
                     .show();
 
@@ -233,7 +248,7 @@ fn build_window() -> Window {
 
     let mut menu = Menu::new("File").unwrap();
     menu.add_item("Open ROM", MENU_OPEN_ROM)
-        .shortcut(Key::O, MENU_KEY_CTRL)
+        .shortcut(Key::O, MENU_MODIFIER)
         .build();
     menu.add_item("Reset", MENU_RESET).build();
     window.add_menu(&menu);
