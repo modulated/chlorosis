@@ -12,7 +12,8 @@ Default key bindings:
 | Z | B |
 | Enter | Start |
 | Backspace / Right Shift | Select |
-| Space | Pause / resume |
+| Space | Hold to fast-forward (500%) |
+| P | Pause / resume |
 | `.` | Step one frame (while paused) |
 | F5 | Quick-save state (slot 0) |
 | F8 | Quick-load state (slot 0) |
@@ -51,9 +52,11 @@ build without sound (and without that dependency), pass
 `--no-default-features`. If no output device is available at runtime the
 emulator just runs silently.
 
-The game bindings are rebindable: copy `debugger/keymap.conf.example` to
+The bindings are rebindable: copy `debugger/keymap.conf.example` to
 `keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
-a file), and edit it. The format is documented in the example.
+a file), and edit it. As well as the game buttons, the config sets the `pause`
+and `turbo` (fast-forward) keys and the `turbo_speed` percentage. The format is
+documented in the example.
 
 ## Architecture
 

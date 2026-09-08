@@ -52,6 +52,9 @@ pub enum Event {
     QuickLoad(u8),
     Run,
     Pause,
+    /// Set the emulation speed as a percentage of real time (100 = normal).
+    /// The frontend uses this for hold-to-fast-forward.
+    SetSpeed(u16),
     /// Advance the given number of master clock ticks while paused.
     Step(u32),
     Reset,

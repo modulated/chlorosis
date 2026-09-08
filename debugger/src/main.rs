@@ -161,13 +161,23 @@ impl Ui {
         let pressed = window.get_keys_pressed(minifb::KeyRepeat::No);
         let released = window.get_keys_released();
 
-        if released.contains(&Key::Space) {
+        if released.contains(&self.keymap.pause) {
             // Ask for the transition and let the core confirm it. Flipping our
             // own copy here is how the two sides drift apart.
             let _ = events.send(match self.state {
                 EmulatorState::Running => Event::Pause,
                 EmulatorState::Paused | EmulatorState::Stopped => Event::Run,
             });
+        }
+
+        // Hold the turbo key to fast-forward; release to return to real time.
+        if let Some(turbo) = self.keymap.turbo {
+            if pressed.contains(&turbo) {
+                let _ = events.send(Event::SetSpeed(self.keymap.turbo_percent));
+            }
+            if released.contains(&turbo) {
+                let _ = events.send(Event::SetSpeed(100));
+            }
         }
 
         if released.contains(&Key::Period) {
@@ -348,11 +358,20 @@ fn build_window() -> Window {
     window
 }
 
-/// Maps host keys to Game Boy buttons. Several keys may map to one button
-/// (arrows and WASD both drive the D-pad by default), and the bindings can be
-/// overridden by a config file - see [`Keymap::load`].
+/// Default fast-forward speed, as a percentage of real time.
+const DEFAULT_TURBO_PERCENT: u16 = 500;
+
+/// Maps host keys to Game Boy buttons and to the emulator controls. Several keys
+/// may map to one button (arrows and WASD both drive the D-pad by default), and
+/// everything can be overridden by a config file - see [`Keymap::load`].
 struct Keymap {
     bindings: Vec<(Key, KeyCode)>,
+    /// Pause / resume toggle.
+    pause: Key,
+    /// Hold-to-fast-forward key, and the speed it selects (percent of real
+    /// time). `None` disables fast-forward.
+    turbo: Option<Key>,
+    turbo_percent: u16,
 }
 
 impl Keymap {
@@ -377,50 +396,72 @@ impl Keymap {
 
     /// Load bindings, overriding the defaults from a config file when one is
     /// present. The path comes from `CHLOROSIS_KEYMAP`, else `keymap.conf` in
-    /// the working directory. Each line is `button = key[, key ...]`; buttons
-    /// are up/down/left/right/a/b/start/select and keys are names like `x`,
-    /// `left`, `space`, `rshift`. A `#` starts a comment. A file with any valid
-    /// binding replaces the defaults entirely, so it fully describes the layout.
+    /// the working directory. Each line is `name = value[, value ...]`. A game
+    /// button (up/down/left/right/a/b/start/select) takes one or more key names
+    /// like `x`, `left`, `space`, `rshift`. The controls `pause` and `turbo`
+    /// take a key (`turbo = none` disables it), and `turbo_speed` takes a
+    /// percentage. A `#` starts a comment. A file with any valid button binding
+    /// replaces the default button layout entirely.
     fn load() -> Self {
+        let mut map = Self {
+            bindings: Vec::new(),
+            pause: Key::P,
+            turbo: Some(Key::Space),
+            turbo_percent: DEFAULT_TURBO_PERCENT,
+        };
+
         let path = std::env::var_os("CHLOROSIS_KEYMAP").map_or_else(
             || std::path::PathBuf::from("keymap.conf"),
             std::path::PathBuf::from,
         );
         let Ok(text) = std::fs::read_to_string(&path) else {
-            return Self {
-                bindings: Self::default_bindings(),
-            };
+            map.bindings = Self::default_bindings();
+            return map;
         };
 
-        let mut bindings = Vec::new();
         for (n, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
                 continue;
             }
-            let Some((button, keys)) = line.split_once('=') else {
-                eprintln!("keymap.conf line {}: expected `button = key`", n + 1);
+            let Some((name, value)) = line.split_once('=') else {
+                eprintln!("keymap.conf line {}: expected `name = value`", n + 1);
                 continue;
             };
-            let Some(code) = parse_button(button.trim()) else {
-                eprintln!("keymap.conf line {}: unknown button `{}`", n + 1, button.trim());
-                continue;
-            };
-            for name in keys.split(',') {
-                let name = name.trim();
-                if let Some(key) = parse_key(name) {
-                    bindings.push((key, code));
-                } else {
-                    eprintln!("keymap.conf line {}: unknown key `{name}`", n + 1);
+            let (name, value) = (name.trim(), value.trim());
+            match name.to_ascii_lowercase().as_str() {
+                "pause" => map.pause = parse_key(value).unwrap_or(map.pause),
+                "turbo" => {
+                    map.turbo = if value.eq_ignore_ascii_case("none") {
+                        None
+                    } else {
+                        parse_key(value).or(map.turbo)
+                    };
+                }
+                "turbo_speed" => match value.trim_end_matches('%').trim().parse::<u16>() {
+                    Ok(pct) => map.turbo_percent = pct.max(100),
+                    Err(_) => eprintln!("keymap.conf line {}: bad turbo_speed `{value}`", n + 1),
+                },
+                _ => {
+                    let Some(code) = parse_button(name) else {
+                        eprintln!("keymap.conf line {}: unknown name `{name}`", n + 1);
+                        continue;
+                    };
+                    for key in value.split(',') {
+                        if let Some(key) = parse_key(key.trim()) {
+                            map.bindings.push((key, code));
+                        } else {
+                            eprintln!("keymap.conf line {}: unknown key `{}`", n + 1, key.trim());
+                        }
+                    }
                 }
             }
         }
 
-        if bindings.is_empty() {
-            eprintln!("keymap.conf had no valid bindings; using defaults");
-            bindings = Self::default_bindings();
+        if map.bindings.is_empty() {
+            map.bindings = Self::default_bindings();
         }
-        Self { bindings }
+        map
     }
 
     fn button(&self, key: &Key) -> Option<KeyCode> {

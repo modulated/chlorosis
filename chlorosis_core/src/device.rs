@@ -23,6 +23,11 @@ pub const TICKS_PER_FRAME: u32 = 70_224;
 /// 4.194304 MHz / 70224 ticks == 59.7275 Hz.
 const FRAME_TIME: Duration = Duration::from_nanos(16_742_706);
 
+/// Default emulation speed (real time) for the serde-skipped `speed` field.
+const fn default_speed() -> f32 {
+    1.0
+}
+
 /// External-RAM bank size (8 KB), used to size `eram` and count RAM banks.
 const RAM_BANK_SIZE: usize = 0x2000;
 
@@ -67,6 +72,10 @@ pub struct Device {
     infrared: Infrared,
     serial: Serial,
     timer: Timer,
+    /// Emulation speed as a multiple of real time (1.0 = normal). A pacing knob,
+    /// not machine state, so it is not part of a save state.
+    #[serde(skip, default = "default_speed")]
+    speed: f32,
     state: EmulatorState,
     #[serde(skip)]
     rom_path: Option<PathBuf>,
@@ -112,6 +121,7 @@ impl Device {
             interrupt_enable: Byte(0),
             mcycle_phase: 0,
             rom_path: None,
+            speed: 1.0,
             state: EmulatorState::Stopped,
         }
     }
@@ -189,7 +199,11 @@ impl Device {
         self.publish_frame(channels);
         self.publish_audio(channels);
 
-        if let Some(report) = pacer.frame_completed()
+        // Fast-forward shortens each frame's real-time budget; the reported
+        // speed percentage rises accordingly since it is measured against the
+        // real frame period.
+        let frame_time = FRAME_TIME.div_f32(self.speed);
+        if let Some(report) = pacer.frame_completed(frame_time)
             && channels.messages.send(report).is_err()
         {
             return Control::Shutdown;
@@ -326,6 +340,11 @@ impl Device {
                 if self.state == EmulatorState::Running {
                     self.set_state(EmulatorState::Paused, channels);
                 }
+            }
+            Event::SetSpeed(percent) => {
+                // Percent of real time (100 = normal); clamp away from zero so
+                // the pacer never divides the frame time by nothing.
+                self.speed = (f32::from(percent.max(1)) / 100.0).max(0.05);
             }
             Event::Step(ticks) => {
                 // Stepping is only meaningful while halted; while running the
@@ -918,15 +937,16 @@ impl Pacer {
     }
 
     /// Sleep out the remainder of the current frame, returning a throughput
-    /// report roughly once a second.
-    fn frame_completed(&mut self) -> Option<CoreMessage> {
+    /// report roughly once a second. `frame_time` is the real-time budget for
+    /// this frame - shorter than one frame period when fast-forwarding.
+    fn frame_completed(&mut self, frame_time: Duration) -> Option<CoreMessage> {
         self.frames_in_window += 1;
-        self.next_frame += FRAME_TIME;
+        self.next_frame += frame_time;
 
         let now = Instant::now();
         if let Some(remaining) = self.next_frame.checked_duration_since(now) {
             std::thread::sleep(remaining);
-        } else if now.duration_since(self.next_frame) > FRAME_TIME * MAX_CATCHUP_FRAMES {
+        } else if now.duration_since(self.next_frame) > frame_time * MAX_CATCHUP_FRAMES {
             // Hopelessly behind: drop the backlog and pace from here.
             self.next_frame = now;
         }
@@ -1478,6 +1498,23 @@ mod tests {
 
         assert!(dev.cpu.halted, "HALT idles the CPU when no interrupt is pending");
         assert!(!dev.cpu.halt_bug);
+    }
+
+    #[test]
+    fn set_speed_scales_the_emulation_rate() {
+        let (channels, _frontend) = crate::channels();
+        let mut dev = Device::new();
+        assert!((dev.speed - 1.0).abs() < f32::EPSILON, "starts at real time");
+
+        dev.handle_event(crate::Event::SetSpeed(500), &channels);
+        assert!((dev.speed - 5.0).abs() < f32::EPSILON, "500% is 5x");
+
+        dev.handle_event(crate::Event::SetSpeed(100), &channels);
+        assert!((dev.speed - 1.0).abs() < f32::EPSILON, "back to real time");
+
+        // Zero is clamped away so the pacer never divides the frame time by it.
+        dev.handle_event(crate::Event::SetSpeed(0), &channels);
+        assert!(dev.speed > 0.0);
     }
 
     #[test]
