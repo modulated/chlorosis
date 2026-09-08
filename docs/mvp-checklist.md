@@ -26,8 +26,9 @@ long before the renderer is even reached. Suggested order is bottom of this file
   byte and sizes external RAM from the header. Banked ROMs larger than 32 KB now
   run in full. MBC2's 4-bit ROM bank register (address bit 8) and built-in
   512×4-bit RAM are modelled, and MBC3's real-time clock ticks on emulated
-  cycles with latch and halt. RAM/RTC access routes through
-  `Mbc::read_ram`/`write_ram`. — `mbc/mod.rs`, `device.rs`
+  cycles with latch and halt, and is persisted to the `.sav` in the BGB/VBA
+  layout. RAM/RTC access routes through `Mbc::read_ram`/`write_ram`. —
+  `mbc/mod.rs`, `device.rs`
 
 ## 2. Stop the memory map killing the core thread
 
@@ -159,8 +160,7 @@ remains is breadth and accuracy:
   `mem_timing`), and CGB double-speed.
 - **Accuracy leftovers** — audio *accuracy* (the channels play, but timing is
   not cycle-exact and the DMG/CGB power-off quirks are approximated), and
-  cycle-exact PPU/instruction timing. The MBC3 RTC keeps its state in save
-  states but is not yet appended to the `.sav` file.
+  cycle-exact PPU/instruction timing.
 
 Since this list was written, the window layer, the CGB colour renderer, the
 tile-map range fix, echo RAM, the IO-hole faults, the Joypad interrupt, the

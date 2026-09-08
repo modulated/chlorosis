@@ -34,7 +34,9 @@ incompatible build, or belongs to a different ROM.
 Cartridges with battery-backed RAM (the in-game save of most RPGs) persist
 that RAM to a `<rom>.sav` file automatically: it is written when the emulator
 exits and when the cartridge is reset or swapped, and read back the next time
-the ROM is loaded.
+the ROM is loaded. MBC3 cartridges with a real-time clock also store the clock
+in the `.sav`, appended after the RAM in the BGB/VBA layout, so it survives
+between runs and interoperates with those emulators' saves.
 
 ## Audio
 

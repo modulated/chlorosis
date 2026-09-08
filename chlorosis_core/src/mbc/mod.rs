@@ -26,6 +26,12 @@ const MBC2_RAM_LEN: usize = 512;
 /// Master clock ticks in one second of emulated time, the MBC3 RTC's tick base.
 const CYCLES_PER_SECOND: u32 = 4_194_304;
 
+/// The ten RTC registers of a `.sav` block: five live, five latched, each a
+/// little-endian `u32`.
+const RTC_REGISTERS_LEN: usize = 10 * 4;
+/// Full RTC block: the registers plus a trailing `u64` timestamp (BGB layout).
+const RTC_SAVE_LEN: usize = RTC_REGISTERS_LEN + 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Kind {
     None,
@@ -134,6 +140,36 @@ impl Rtc {
             _ => {}
         }
     }
+
+    /// The ten registers in `.sav` order: live seconds/minutes/hours/day-lo/
+    /// day-hi, then the latched five.
+    const fn registers(&self) -> [u8; 10] {
+        [
+            self.seconds,
+            self.minutes,
+            self.hours,
+            self.day_lo,
+            self.day_hi,
+            self.l_seconds,
+            self.l_minutes,
+            self.l_hours,
+            self.l_day_lo,
+            self.l_day_hi,
+        ]
+    }
+
+    const fn set_registers(&mut self, r: &[u8; 10]) {
+        self.seconds = r[0];
+        self.minutes = r[1];
+        self.hours = r[2];
+        self.day_lo = r[3];
+        self.day_hi = r[4];
+        self.l_seconds = r[5];
+        self.l_minutes = r[6];
+        self.l_hours = r[7];
+        self.l_day_lo = r[8];
+        self.l_day_hi = r[9];
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -197,6 +233,45 @@ impl Mbc {
     /// Advance the real-time clock (a no-op unless this is an MBC3 with a timer).
     pub const fn tick(&mut self) {
         self.rtc.tick();
+    }
+
+    /// Whether this cartridge carries a real-time clock (some do without any
+    /// battery RAM, so they still need a `.sav` for the clock alone).
+    #[must_use]
+    pub const fn has_rtc(&self) -> bool {
+        self.rtc.present
+    }
+
+    /// The RTC state to append to a `.sav`, or `None` when there is no clock.
+    /// Uses the BGB/VBA layout so saves interoperate: ten little-endian `u32`
+    /// registers (live then latched) followed by a `u64` timestamp, which this
+    /// cycle-based clock does not use and writes as zero.
+    #[must_use]
+    pub fn rtc_save(&self) -> Option<Vec<u8>> {
+        if !self.rtc.present {
+            return None;
+        }
+        let mut out = Vec::with_capacity(RTC_SAVE_LEN);
+        for reg in self.rtc.registers() {
+            out.extend_from_slice(&u32::from(reg).to_le_bytes());
+        }
+        out.extend_from_slice(&0u64.to_le_bytes());
+        Some(out)
+    }
+
+    /// Restore RTC state written by [`Self::rtc_save`]. Ignored when there is no
+    /// clock or the block is too short (an older `.sav` with no RTC appended).
+    pub fn rtc_load(&mut self, data: &[u8]) {
+        if !self.rtc.present || data.len() < RTC_REGISTERS_LEN {
+            return;
+        }
+        let mut regs = [0u8; 10];
+        for (i, reg) in regs.iter_mut().enumerate() {
+            let base = i * 4;
+            *reg = u32::from_le_bytes([data[base], data[base + 1], data[base + 2], data[base + 3]])
+                as u8;
+        }
+        self.rtc.set_registers(&regs);
     }
 
     /// Flat ROM offset for a read in `0x0000..=0x7FFF`.
@@ -468,6 +543,39 @@ mod tests {
         m.write_control(0x6000, 0x00);
         m.write_control(0x6000, 0x01);
         assert_eq!(m.read_ram(0xA000, &ram), Byte(2), "re-latching sees the new time");
+    }
+
+    #[test]
+    fn rtc_state_round_trips_through_a_sav_block() {
+        let mut m = Mbc::new(0x10, 4, 1);
+        let mut ram = vec![Byte(0); 0x2000];
+        m.write_control(0x0000, 0x0A);
+        // Set a recognizable time on the live and latched registers.
+        m.write_control(0x4000, 0x08);
+        m.write_ram(0xA000, 0x21, &mut ram); // seconds = 33
+        m.write_control(0x4000, 0x0A);
+        m.write_ram(0xA000, 0x05, &mut ram); // hours = 5
+        m.write_control(0x6000, 0x00);
+        m.write_control(0x6000, 0x01); // latch
+
+        let block = m.rtc_save().expect("timer cart has a clock");
+        assert_eq!(block.len(), super::RTC_SAVE_LEN);
+
+        // A fresh controller restores the same latched readings.
+        let mut restored = Mbc::new(0x10, 4, 1);
+        restored.write_control(0x0000, 0x0A);
+        restored.rtc_load(&block);
+        restored.write_control(0x4000, 0x08);
+        assert_eq!(restored.read_ram(0xA000, &ram), Byte(33), "seconds restored");
+        restored.write_control(0x4000, 0x0A);
+        assert_eq!(restored.read_ram(0xA000, &ram), Byte(5), "hours restored");
+    }
+
+    #[test]
+    fn a_timerless_cart_has_no_rtc_block() {
+        let m = Mbc::new(0x13, 4, 1); // MBC3 + RAM + BATTERY, no timer
+        assert!(!m.has_rtc());
+        assert!(m.rtc_save().is_none());
     }
 
     #[test]

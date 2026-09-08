@@ -608,26 +608,30 @@ impl Device {
         )
     }
 
-    /// Load `<rom>.sav` into external RAM if this cart has a battery and the file
-    /// exists and matches the RAM size. A missing file (a brand-new save) or a
-    /// mismatched one is ignored, so the game just starts with blank RAM.
+    /// Load `<rom>.sav` for this cart, if any. The file is the RAM image
+    /// followed by an optional RTC block (MBC3 timer carts). A missing file (a
+    /// brand-new save) is ignored; a file shorter than the RAM is left alone so
+    /// blank RAM is not overwritten with garbage.
     fn load_battery(&mut self) {
-        if !self.has_battery() || self.eram.is_empty() {
+        if !self.has_battery() {
             return;
         }
         let Some(path) = self.battery_path() else {
             return;
         };
+        let ram_len = self.eram.len();
         match std::fs::read(&path) {
-            Ok(bytes) if bytes.len() == self.eram.len() => {
-                self.eram = bytes.into_iter().map(Byte).collect();
-                println!("Loaded battery RAM from {}", path.display());
+            Ok(bytes) if bytes.len() >= ram_len => {
+                self.eram = bytes[..ram_len].iter().copied().map(Byte).collect();
+                // Anything past the RAM is the RTC block; the MBC ignores it if
+                // it has no clock or the block is too short.
+                self.mbc.rtc_load(&bytes[ram_len..]);
+                println!("Loaded save from {}", path.display());
             }
             Ok(bytes) => eprintln!(
-                "Ignoring {}: {} bytes of save RAM, expected {}",
+                "Ignoring {}: {} bytes, expected at least {ram_len} of save RAM",
                 path.display(),
                 bytes.len(),
-                self.eram.len()
             ),
             // No file yet is the normal case for a fresh cartridge.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -635,19 +639,27 @@ impl Device {
         }
     }
 
-    /// Write external RAM out to `<rom>.sav` if this cart has a battery. Called
-    /// on shutdown and before swapping or resetting a cartridge, so progress
-    /// survives across runs. Errors are logged, never fatal.
+    /// Write the RAM image, plus the RTC block for timer carts, out to
+    /// `<rom>.sav` if this cart has a battery. Called on shutdown and before
+    /// swapping or resetting a cartridge, so progress survives across runs.
+    /// Errors are logged, never fatal.
     pub fn flush_battery(&self) {
-        if !self.has_battery() || self.eram.is_empty() {
+        if !self.has_battery() {
+            return;
+        }
+        // A timer-only cart (RTC, no RAM) still has a clock worth saving.
+        if self.eram.is_empty() && !self.mbc.has_rtc() {
             return;
         }
         let Some(path) = self.battery_path() else {
             return;
         };
-        let bytes: Vec<u8> = self.eram.iter().map(|b| b.0).collect();
+        let mut bytes: Vec<u8> = self.eram.iter().map(|b| b.0).collect();
+        if let Some(rtc) = self.mbc.rtc_save() {
+            bytes.extend_from_slice(&rtc);
+        }
         match std::fs::write(&path, bytes) {
-            Ok(()) => println!("Saved battery RAM to {}", path.display()),
+            Ok(()) => println!("Saved to {}", path.display()),
             Err(e) => eprintln!("Could not write {}: {e}", path.display()),
         }
     }
@@ -1360,6 +1372,44 @@ mod tests {
         fresh.load_cartrige(rom.path()).expect("load");
         fresh.write(Address(0x0000), Byte(0x0A)); // RAM enable
         assert_eq!(fresh.read(Address(0xA042)), Byte(0x77), "save RAM restored");
+
+        std::fs::remove_file(&sav).ok();
+    }
+
+    #[test]
+    fn rtc_persists_across_a_reload_via_the_sav() {
+        use std::io::Write;
+        // MBC3 + TIMER + RAM + BATTERY, one 8 KB RAM bank.
+        let mut rom = vec![0u8; ROM_BANK_SIZE * 2];
+        rom[0x0147] = 0x10;
+        rom[0x0148] = 0x00; // 32 KB ROM
+        rom[0x0149] = 0x02; // 8 KB RAM
+        let mut file = tempfile::NamedTempFile::new().expect("temp rom");
+        file.write_all(&rom).expect("write rom");
+        file.flush().expect("flush rom");
+
+        let mut dev = Device::new();
+        dev.load_cartrige(file.path()).expect("load");
+        let sav = dev.battery_path().expect("rom path known");
+
+        // Set a recognizable time on the clock, latch it, and flush.
+        dev.write(Address(0x0000), Byte(0x0A)); // enable RAM/RTC
+        dev.write(Address(0x4000), Byte(0x08)); // select seconds
+        dev.write(Address(0xA000), Byte(42)); // seconds = 42
+        dev.write(Address(0x6000), Byte(0x00));
+        dev.write(Address(0x6000), Byte(0x01)); // latch
+        let saved_seconds = dev.read(Address(0xA000));
+        assert_eq!(saved_seconds, Byte(42), "clock set before saving");
+        dev.flush_battery();
+
+        // A fresh machine restores the clock from the .sav.
+        let mut fresh = Device::new();
+        fresh.load_cartrige(file.path()).expect("load");
+        fresh.write(Address(0x0000), Byte(0x0A));
+        fresh.write(Address(0x4000), Byte(0x08));
+        fresh.write(Address(0x6000), Byte(0x00));
+        fresh.write(Address(0x6000), Byte(0x01)); // latch the restored time
+        assert_eq!(fresh.read(Address(0xA000)), saved_seconds, "RTC restored");
 
         std::fs::remove_file(&sav).ok();
     }
