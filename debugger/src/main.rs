@@ -173,10 +173,13 @@ impl Ui {
         // Hold the turbo key to fast-forward; release to return to real time.
         if let Some(turbo) = self.keymap.turbo {
             if pressed.contains(&turbo) {
-                let _ = events.send(Event::SetSpeed(self.keymap.turbo_percent));
+                let _ = events.send(Event::SetSpeed {
+                    percent: self.keymap.turbo_percent,
+                    mute: self.keymap.mute_turbo,
+                });
             }
             if released.contains(&turbo) {
-                let _ = events.send(Event::SetSpeed(100));
+                let _ = events.send(Event::SetSpeed { percent: 100, mute: false });
             }
         }
 
@@ -372,6 +375,8 @@ struct Keymap {
     /// time). `None` disables fast-forward.
     turbo: Option<Key>,
     turbo_percent: u16,
+    /// Whether to mute audio while fast-forwarding.
+    mute_turbo: bool,
 }
 
 impl Keymap {
@@ -408,6 +413,7 @@ impl Keymap {
             pause: Key::P,
             turbo: Some(Key::Space),
             turbo_percent: DEFAULT_TURBO_PERCENT,
+            mute_turbo: true,
         };
 
         let path = std::env::var_os("CHLOROSIS_KEYMAP").map_or_else(
@@ -442,6 +448,10 @@ impl Keymap {
                     Ok(pct) => map.turbo_percent = pct.max(100),
                     Err(_) => eprintln!("keymap.conf line {}: bad turbo_speed `{value}`", n + 1),
                 },
+                "mute_turbo" => match parse_bool(value) {
+                    Some(b) => map.mute_turbo = b,
+                    None => eprintln!("keymap.conf line {}: bad mute_turbo `{value}`", n + 1),
+                },
                 _ => {
                     let Some(code) = parse_button(name) else {
                         eprintln!("keymap.conf line {}: unknown name `{name}`", n + 1);
@@ -469,6 +479,15 @@ impl Keymap {
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, code)| *code)
+    }
+}
+
+/// Parse a config boolean: `true`/`false`, `on`/`off`, `yes`/`no`, `1`/`0`.
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "on" | "yes" | "1" => Some(true),
+        "false" | "off" | "no" | "0" => Some(false),
+        _ => None,
     }
 }
 

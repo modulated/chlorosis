@@ -55,8 +55,9 @@ emulator just runs silently.
 The bindings are rebindable: copy `debugger/keymap.conf.example` to
 `keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
 a file), and edit it. As well as the game buttons, the config sets the `pause`
-and `turbo` (fast-forward) keys and the `turbo_speed` percentage. The format is
-documented in the example.
+and `turbo` (fast-forward) keys, the `turbo_speed` percentage, and
+`mute_turbo` (whether audio is silenced while fast-forwarding, on by default).
+The format is documented in the example.
 
 ## Architecture
 

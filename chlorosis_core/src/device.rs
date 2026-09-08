@@ -76,6 +76,10 @@ pub struct Device {
     /// not machine state, so it is not part of a save state.
     #[serde(skip, default = "default_speed")]
     speed: f32,
+    /// Whether to drop audio instead of forwarding it (set while fast-forwarding
+    /// when the frontend asks to mute). Not machine state.
+    #[serde(skip)]
+    mute_audio: bool,
     state: EmulatorState,
     #[serde(skip)]
     rom_path: Option<PathBuf>,
@@ -122,6 +126,7 @@ impl Device {
             mcycle_phase: 0,
             rom_path: None,
             speed: 1.0,
+            mute_audio: false,
             state: EmulatorState::Stopped,
         }
     }
@@ -293,8 +298,10 @@ impl Device {
     /// the machine paused) the excess is dropped rather than growing without
     /// bound.
     fn publish_audio(&mut self, channels: &CoreChannels) {
+        // Always drain the APU so its buffer does not grow; drop the samples
+        // when muted (fast-forward) instead of forwarding sped-up audio.
         let samples = self.audio.drain();
-        if samples.is_empty() {
+        if self.mute_audio || samples.is_empty() {
             return;
         }
         if let Ok(mut buffer) = channels.audio.lock() {
@@ -341,10 +348,12 @@ impl Device {
                     self.set_state(EmulatorState::Paused, channels);
                 }
             }
-            Event::SetSpeed(percent) => {
+            Event::SetSpeed { percent, mute } => {
                 // Percent of real time (100 = normal); clamp away from zero so
                 // the pacer never divides the frame time by nothing.
                 self.speed = (f32::from(percent.max(1)) / 100.0).max(0.05);
+                // Only mute when actually running faster than real time.
+                self.mute_audio = mute && self.speed > 1.0;
             }
             Event::Step(ticks) => {
                 // Stepping is only meaningful while halted; while running the
@@ -1506,15 +1515,33 @@ mod tests {
         let mut dev = Device::new();
         assert!((dev.speed - 1.0).abs() < f32::EPSILON, "starts at real time");
 
-        dev.handle_event(crate::Event::SetSpeed(500), &channels);
+        dev.handle_event(crate::Event::SetSpeed { percent: 500, mute: false }, &channels);
         assert!((dev.speed - 5.0).abs() < f32::EPSILON, "500% is 5x");
 
-        dev.handle_event(crate::Event::SetSpeed(100), &channels);
+        dev.handle_event(crate::Event::SetSpeed { percent: 100, mute: false }, &channels);
         assert!((dev.speed - 1.0).abs() < f32::EPSILON, "back to real time");
 
         // Zero is clamped away so the pacer never divides the frame time by it.
-        dev.handle_event(crate::Event::SetSpeed(0), &channels);
+        dev.handle_event(crate::Event::SetSpeed { percent: 0, mute: false }, &channels);
         assert!(dev.speed > 0.0);
+    }
+
+    #[test]
+    fn muting_only_applies_above_real_time() {
+        let (channels, _frontend) = crate::channels();
+        let mut dev = Device::new();
+
+        // Asking to mute while fast-forwarding takes effect.
+        dev.handle_event(crate::Event::SetSpeed { percent: 500, mute: true }, &channels);
+        assert!(dev.mute_audio, "muted while fast-forwarding");
+
+        // Returning to real time clears the mute even if asked to keep it.
+        dev.handle_event(crate::Event::SetSpeed { percent: 100, mute: true }, &channels);
+        assert!(!dev.mute_audio, "not muted at real time");
+
+        // Fast-forwarding with muting disabled keeps audio on.
+        dev.handle_event(crate::Event::SetSpeed { percent: 500, mute: false }, &channels);
+        assert!(!dev.mute_audio, "fast-forward audio kept when not muting");
     }
 
     #[test]

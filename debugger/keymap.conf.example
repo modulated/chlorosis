@@ -25,7 +25,9 @@ select = backspace, rshift
 #   pause       = key            toggle pause/resume
 #   turbo       = key | none     hold to fast-forward (none disables it)
 #   turbo_speed = percent        the fast-forward speed, >= 100
+#   mute_turbo  = true | false   silence audio while fast-forwarding
 
 pause       = p
 turbo       = space
 turbo_speed = 500
+mute_turbo  = true
