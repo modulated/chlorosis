@@ -1,8 +1,10 @@
 use std::ops::{Add, IndexMut, Mul, Sub};
 
+use serde::{Deserialize, Serialize};
+
 use super::Byte;
 
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Address(pub u16);
 
 impl Address {
@@ -61,13 +63,13 @@ impl Mul<usize> for Address {
 
 impl std::ops::AddAssign<u8> for Address {
     fn add_assign(&mut self, rhs: u8) {
-        self.0 = self.0 + (rhs as u16);
+        self.0 = self.0.wrapping_add(rhs as u16);
     }
 }
 
 impl std::ops::AddAssign<u16> for Address {
     fn add_assign(&mut self, rhs: u16) {
-        self.0 = self.0 + rhs;
+        self.0 = self.0.wrapping_add(rhs);
     }
 }
 
@@ -85,25 +87,25 @@ impl std::ops::AddAssign<Byte> for Address {
 
 impl std::ops::SubAssign<u8> for Address {
     fn sub_assign(&mut self, rhs: u8) {
-        self.0 = self.0 - (rhs as u16);
+        self.0 = self.0.wrapping_sub(rhs as u16);
     }
 }
 
 impl std::ops::SubAssign<u16> for Address {
     fn sub_assign(&mut self, rhs: u16) {
-        self.0 = self.0 - rhs;
+        self.0 = self.0.wrapping_sub(rhs);
     }
 }
 
 impl std::ops::SubAssign<i32> for Address {
     fn sub_assign(&mut self, rhs: i32) {
-        self.0 = self.0 - (rhs as u16);
+        self.0 = self.0.wrapping_sub(rhs as u16);
     }
 }
 
 impl std::ops::SubAssign<Byte> for Address {
     fn sub_assign(&mut self, rhs: Byte) {
-        self.0 = self.0 - (rhs.0 as u16);
+        self.0 = self.0.wrapping_sub(rhs.0 as u16);
     }
 }
 
@@ -111,7 +113,7 @@ impl Sub<Self> for Address {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
+        Self(self.0.wrapping_sub(rhs.0))
     }
 }
 
@@ -119,7 +121,7 @@ impl Sub<u8> for Address {
     type Output = Self;
 
     fn sub(self, rhs: u8) -> Self::Output {
-        Self(self.0 - rhs as u16)
+        Self(self.0.wrapping_sub(rhs as u16))
     }
 }
 
@@ -127,7 +129,7 @@ impl Sub<i32> for Address {
     type Output = Self;
 
     fn sub(self, rhs: i32) -> Self::Output {
-        Self(self.0 - rhs as u16)
+        Self(self.0.wrapping_sub(rhs as u16))
     }
 }
 
@@ -135,7 +137,7 @@ impl Sub<u16> for Address {
     type Output = Self;
 
     fn sub(self, rhs: u16) -> Self::Output {
-        Self(self.0 - rhs)
+        Self(self.0.wrapping_sub(rhs))
     }
 }
 
@@ -143,7 +145,7 @@ impl Add<Self> for Address {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
+        Self(self.0.wrapping_add(rhs.0))
     }
 }
 
@@ -151,7 +153,7 @@ impl Add<u8> for Address {
     type Output = Self;
 
     fn add(self, rhs: u8) -> Self::Output {
-        Self(self.0 + rhs as u16)
+        Self(self.0.wrapping_add(rhs as u16))
     }
 }
 
@@ -159,7 +161,7 @@ impl Add<i32> for Address {
     type Output = Self;
 
     fn add(self, rhs: i32) -> Self::Output {
-        Self(self.0 + rhs as u16)
+        Self(self.0.wrapping_add(rhs as u16))
     }
 }
 
@@ -167,7 +169,7 @@ impl Add<u16> for Address {
     type Output = Self;
 
     fn add(self, rhs: u16) -> Self::Output {
-        Self(self.0 + rhs)
+        Self(self.0.wrapping_add(rhs))
     }
 }
 

@@ -24,7 +24,7 @@ impl CentralProcessor {
         }
     }
 
-    pub fn write_register(&mut self, reg: Register, val: Byte) {
+    pub const fn write_register(&mut self, reg: Register, val: Byte) {
         match reg {
             Register::A => self.a = val,
             Register::B => self.b = val,

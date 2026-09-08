@@ -22,8 +22,10 @@ impl Device {
             }
             // 0x02
             LD_aBC_A => {
+                // Stores A at (BC) - this previously read from (BC) into A,
+                // the inverse of the instruction.
                 let addr = self.cpu.read_bc();
-                self.cpu.a = self.read(addr);
+                self.write(addr, self.cpu.a);
                 self.cpu.cost = 2;
             }
             // 0x03
@@ -107,12 +109,19 @@ impl Device {
             // Row 1
             // 0x10
             STOP(_) => {
-                // TODO: Implement STOP operation
-                // IF all IE flags reset AND input P10 to P13 are LOW
-                // STOP SYSTEM CLOCK and OSCILLATOR CIRCUIT and LCD controller
-                // Cancelled by RESET signal
-
-                panic!("Unimplemented STOP");
+                // On CGB, STOP with the speed switch armed (KEY1 bit 0) flips
+                // the CPU clock speed. Double speed is not modelled, but the
+                // register is honoured - bit 7 reports the current speed and the
+                // armed bit clears - so ROMs that perform and verify the switch
+                // proceed. Otherwise STOP is a no-op here rather than a panic.
+                let key1 = self.read(Address(0xFF4D));
+                if key1.is_bit_set(0) {
+                    let mut updated = key1;
+                    updated.write_bit(7, !key1.is_bit_set(7));
+                    updated.write_bit(0, false);
+                    self.write(Address(0xFF4D), updated);
+                }
+                self.cpu.cost = 1;
             }
             // 0x11
             LD_DE_d16(addr) => {
@@ -148,9 +157,11 @@ impl Device {
             // 0x17
             RLA => {
                 let prev = self.cpu.c_flag;
+                self.cpu.clear_flags();
                 self.cpu.c_flag = self.cpu.a.is_bit_set(7);
                 let mut val = self.cpu.a << 1;
                 val.write_bit(0, prev);
+                self.cpu.a = val;
                 self.cpu.cost = 1;
             }
             // 0x18
@@ -173,7 +184,7 @@ impl Device {
             }
             // 0x1B
             DEC_DE => {
-                self.cpu.write_de(self.cpu.read_de());
+                self.cpu.write_de(self.cpu.read_de() - 1);
                 self.cpu.cost = 2;
             }
             // 0x1C
@@ -193,10 +204,14 @@ impl Device {
             }
             // 0x1F
             RRA => {
+                // The rotated value was computed but never written back to A,
+                // and Z/N/H were left untouched (RRA clears all three).
                 let prev = self.cpu.c_flag;
+                self.cpu.clear_flags();
                 self.cpu.c_flag = self.cpu.a.is_bit_set(0);
                 let mut val = self.cpu.a >> 1;
                 val.write_bit(7, prev);
+                self.cpu.a = val;
                 self.cpu.cost = 1;
             }
             // Row 1
@@ -245,8 +260,33 @@ impl Device {
             }
             // 0x27
             DAA => {
-                // TODO: implement BCD operation
-                unimplemented!()
+                // Decimal-adjust A after a BCD add or subtract, using the flags
+                // the arithmetic left behind. Add and subtract correct in
+                // opposite directions; H and (for adds) the 0x99 threshold say
+                // which nibbles need a +/-6.
+                let mut a = self.cpu.a.0;
+                let mut carry = self.cpu.c_flag;
+                if self.cpu.n_flag {
+                    if self.cpu.h_flag {
+                        a = a.wrapping_sub(0x06);
+                    }
+                    if self.cpu.c_flag {
+                        a = a.wrapping_sub(0x60);
+                    }
+                } else {
+                    if self.cpu.c_flag || a > 0x99 {
+                        a = a.wrapping_add(0x60);
+                        carry = true;
+                    }
+                    if self.cpu.h_flag || (a & 0x0F) > 0x09 {
+                        a = a.wrapping_add(0x06);
+                    }
+                }
+                self.cpu.a = Byte(a);
+                self.cpu.z_flag = a == 0;
+                self.cpu.h_flag = false;
+                self.cpu.c_flag = carry;
+                self.cpu.cost = 1;
             }
             // 0x28
             JR_Z_s8(signed) => {
@@ -692,12 +732,18 @@ impl Device {
             }
             // 0x76
             HALT => {
-                // TODO: implement HALT
-                // STOP system clock
-                // Cancelled by interrupt or reset
-                // if interrupt master enable set PC is pushed to stack and jump to interrupt address
+                // Normally idle until an enabled interrupt is pending; step_cpu
+                // wakes us and, if IME is set, services it. But HALT with IME
+                // clear *and* an interrupt already pending hits the HALT bug: the
+                // CPU does not halt, and the next opcode byte is fetched twice
+                // (PC fails to advance once) - handled in fetch_instruction.
+                let pending = self.has_pending_interrupt();
+                if !self.cpu.interupt_master_enable && pending {
+                    self.cpu.halt_bug = true;
+                } else {
+                    self.cpu.halted = true;
+                }
                 self.cpu.cost = 1;
-                unimplemented!();
             }
             // 0x77
             LD_aHL_A => {
@@ -1104,7 +1150,8 @@ impl Device {
             }
             // 0xC2
             JP_NZ_a16(addr) => {
-                if self.cpu.z_flag {
+                // "NZ" jumps when Z is clear - the condition was inverted.
+                if !self.cpu.z_flag {
                     self.cpu.pc = addr;
                     self.cpu.cost = 4;
                 } else {
@@ -1133,11 +1180,8 @@ impl Device {
             }
             // 0xC6
             ADD_A_d8(val) => {
-                self.cpu.check_carry_add_byte(self.cpu.a, val);
-                self.cpu.check_half_carry_add_byte(self.cpu.a, val);
-                self.cpu.n_flag = false;
-                self.cpu.a = val;
-                self.cpu.check_zero(self.cpu.a);
+                // This set A to the operand instead of A + operand.
+                self.cpu.add(val);
                 self.cpu.cost = 2;
             }
             // 0xC7
@@ -1254,7 +1298,8 @@ impl Device {
             // 0xD8
             RET_C => {
                 if self.cpu.c_flag {
-                    self.cpu.sp = self.pop_address();
+                    // RET pops the return address into PC, not SP.
+                    self.cpu.pc = self.pop_address();
                     self.cpu.cost = 5;
                 } else {
                     self.cpu.cost = 2;
@@ -1262,10 +1307,12 @@ impl Device {
             }
             // 0xD9
             RETI => {
-                // TODO: RETI instruction
-                unimplemented!("RETI instruction not implemented");
-                // toggle master interrupt enable flag
-                // load PC from SP? or other
+                // Return from an interrupt handler: pop PC and re-enable
+                // interrupts immediately (unlike EI, which is delayed one
+                // instruction on hardware - a nuance not modelled here).
+                self.cpu.pc = self.pop_address();
+                self.cpu.interupt_master_enable = true;
+                self.cpu.cost = 4;
             }
             // 0xDA
             JP_C_a16(addr) => {
@@ -1339,9 +1386,17 @@ impl Device {
             }
             // 0xE8
             ADD_SP_s8(signed) => {
+                // This wrote the result to PC instead of SP (a wild jump) and
+                // never set a cost. It adds the signed offset to SP; H and C
+                // come from the low byte, per the hardware quirk.
+                let sp = self.cpu.sp.0;
+                let offset = signed.0 as i16 as u16; // sign-extended
+                let e = signed.0 as u8 as u16; // byte value for the flag maths
                 self.cpu.clear_flags();
-                self.cpu.check_carry_signed_address(self.cpu.sp, signed);
-                self.cpu.pc = Address(((self.cpu.sp.0 as i32) + (signed.0 as i32)) as u16);
+                self.cpu.h_flag = (sp & 0x0F) + (e & 0x0F) > 0x0F;
+                self.cpu.c_flag = (sp & 0xFF) + (e & 0xFF) > 0xFF;
+                self.cpu.sp = Address(sp.wrapping_add(offset));
+                self.cpu.cost = 4;
             }
             // 0xE9
             JP_HL => {
@@ -1411,10 +1466,14 @@ impl Device {
             }
             // 0xF8
             LD_HL_SP_s8(signed) => {
-                let addr = Address(((self.cpu.sp.0 as i32) + (signed.0 as i32)) as u16);
+                // H and C come from the low byte, like ADD SP,e8.
+                let sp = self.cpu.sp.0;
+                let offset = signed.0 as i16 as u16;
+                let e = signed.0 as u8 as u16;
                 self.cpu.clear_flags();
-                self.cpu.check_carry_signed_address(self.cpu.sp, signed);
-                self.cpu.write_hl(addr);
+                self.cpu.h_flag = (sp & 0x0F) + (e & 0x0F) > 0x0F;
+                self.cpu.c_flag = (sp & 0xFF) + (e & 0xFF) > 0xFF;
+                self.cpu.write_hl(Address(sp.wrapping_add(offset)));
                 self.cpu.cost = 3;
             }
             // 0xF9
@@ -1443,7 +1502,6 @@ impl Device {
             }
             // 0xFF
             RST_7 => {
-                println!("RST_7 => may indicate 0xFF bug");
                 self.push_address(self.cpu.pc);
                 self.cpu.pc = RST_7_ADDRESS.into();
                 self.cpu.cost = 4;
@@ -1534,7 +1592,7 @@ impl Device {
             }
             // 0xCB0F
             RRC_A => {
-                self.cpu.b = self.cpu.rrc(self.cpu.b);
+                self.cpu.a = self.cpu.rrc(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 0
@@ -1621,7 +1679,7 @@ impl Device {
             }
             // 0xCB1F
             RR_A => {
-                self.cpu.b = self.cpu.rr(self.cpu.b);
+                self.cpu.a = self.cpu.rr(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 1
@@ -1708,7 +1766,7 @@ impl Device {
             }
             // 0xCB2F
             SRA_A => {
-                self.cpu.b = self.cpu.sra(self.cpu.b);
+                self.cpu.a = self.cpu.sra(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 2
@@ -1795,7 +1853,7 @@ impl Device {
             }
             // 0xCB3F
             SRL_A => {
-                self.cpu.b = self.cpu.srl(self.cpu.b);
+                self.cpu.a = self.cpu.srl(self.cpu.a);
                 self.cpu.cost = 2;
             }
             // Row 3

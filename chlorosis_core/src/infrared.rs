@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::types::Byte;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Infrared {
     read_enabled: bool,
     reading: bool,
@@ -18,7 +20,7 @@ impl Default for Infrared {
 }
 
 impl Infrared {
-    pub fn read(&self) -> Byte {
+    pub const fn read(&self) -> Byte {
         let mut value = Byte(0);
         value.write_bit(0, self.led_active);
         value.write_bit(1, self.reading);
@@ -27,7 +29,7 @@ impl Infrared {
         value
     }
 
-    pub fn write(&mut self, value: Byte) {
+    pub const fn write(&mut self, value: Byte) {
         self.led_active = value.is_bit_set(0);
         self.read_enabled = value.is_bit_set(6);
         self.read_enabled = value.is_bit_set(7);

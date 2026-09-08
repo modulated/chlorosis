@@ -1,11 +1,19 @@
 [package]
 name = "chlorosis_debugger"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+# Audio output is on by default. It pulls in cpal, which on Linux needs the
+# ALSA development headers (libasound2-dev); build with --no-default-features
+# to skip it where those are unavailable.
+default = ["audio"]
+audio = ["dep:cpal"]
+
 [dependencies]
 chlorosis_core = {path = "../chlorosis_core"}
-minifb = "0.24"
-native-dialog = "0.6"
+minifb = "0.28"
+native-dialog = "0.9"
+cpal = { version = "0.15", optional = true }
