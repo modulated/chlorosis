@@ -1,6 +1,95 @@
 # Chlorosis
 Gameboy and Gameboy Color emulator
 
+## Controls
+
+Default key bindings:
+
+| Key | Button |
+| --- | --- |
+| Arrow keys / W A S D | D-pad |
+| X | A |
+| Z | B |
+| Enter | Start |
+| Backspace / Right Shift | Select |
+| Space | Hold to fast-forward (500%) |
+| P | Pause / resume |
+| `.` | Step one frame (while paused) |
+| F5 | Quick-save state (slot 0) |
+| F8 | Quick-load state (slot 0) |
+| Esc | Quit |
+| Cmd/Ctrl + O | Open ROM |
+| Cmd/Ctrl + S | Save state to a file |
+| Cmd/Ctrl + L | Load state from a file |
+
+## Save states
+
+The whole machine can be snapshotted and restored. **File → Save State /
+Load State** (or Cmd/Ctrl + S / L) write and read a `.chl` file you choose;
+**F5 / F8** quick-save and quick-load a slot stored next to the ROM
+(`<rom>.0.chl`). A save state captures everything except the ROM itself
+(CPU, PPU, VRAM, cartridge RAM, MBC banking, timers, and so on), and a load
+is rejected with a message if the file is not a save state, was written by an
+incompatible build, or belongs to a different ROM.
+
+Cartridges with battery-backed RAM (the in-game save of most RPGs) persist
+that RAM to a `<rom>.sav` file automatically: it is written when the emulator
+exits and when the cartridge is reset or swapped, and read back the next time
+the ROM is loaded. MBC3 cartridges with a real-time clock also store the clock
+in the `.sav`, appended after the RAM in the BGB/VBA layout, so it survives
+between runs and interoperates with those emulators' saves.
+
+## Audio
+
+All four sound channels are emulated — two square waves (one with a frequency
+sweep), the programmable wave channel, and the noise channel — mixed to stereo
+and played through the host's default output device.
+
+Audio output is behind the `audio` feature, which is **on by default**. On
+Linux it needs the ALSA development headers at build time
+(`libasound2-dev` on Debian/Ubuntu); macOS and Windows need nothing extra. To
+build without sound (and without that dependency), pass
+`--no-default-features`. If no output device is available at runtime the
+emulator just runs silently.
+
+The bindings are rebindable: copy `debugger/keymap.conf.example` to
+`keymap.conf` in the directory you launch from (or point `CHLOROSIS_KEYMAP` at
+a file), and edit it. As well as the game buttons, the config sets the `pause`
+and `turbo` (fast-forward) keys, the `turbo_speed` percentage, and
+`mute_turbo` (whether audio is silenced while fast-forwarding, on by default).
+The format is documented in the example.
+
+## Architecture
+
+The emulator and the window run on separate threads and never block on each
+other.
+
+```
+  frontend thread                            emulation thread
+  (debugger/src/main.rs)                     (chlorosis_core::Device)
+
+    window events  --- Event ------------->  drained every frame
+    window title   <-- CoreMessage --------  state, faults, speed
+    presents       <-- frame swap ---------  published per PPU frame
+```
+
+* **`Event`** carries intents one way only. The frontend asks; it never
+  mutates the emulator and never decides the emulator's state for it.
+* **`CoreMessage`** carries what actually happened back: state changes,
+  errors, faults, and a speed report. The emulator is the single authority on
+  its own state, so the two sides cannot drift out of sync.
+* **Frames** cross through a two slot swap (`chlorosis_core::framebuffer`)
+  rather than a queue. Publishing overwrites any frame the frontend has not
+  collected, so latency stays bounded at one frame however far the two rates
+  drift, and steady state does not allocate.
+
+The emulation thread schedules a frame at a time: 70,224 master clock ticks
+back to back, then one sleep to the next 16.742 ms deadline, with deadlines
+accumulated from a fixed origin so sleep overshoot does not compound. Falling
+more than a few frames behind resets the deadline instead of sprinting to catch
+up. The frontend paces itself independently and always redraws its last frame,
+so a slow emulator makes the picture stale rather than making the window lag.
+
 ## Memory
 - 32 KB Work RAM
 - Cartrige space

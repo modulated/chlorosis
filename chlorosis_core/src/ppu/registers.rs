@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use crate::{Address, Byte, PixelProcessor};
 
 impl PixelProcessor {
-    pub fn read_io(&self, address: Address) -> Byte {
+    pub const fn read_io(&self, address: Address) -> Byte {
         match address.0 {
             0xFF40 => self.LCDC,
             0xFF41 => self.STAT,
@@ -25,19 +25,18 @@ impl PixelProcessor {
             0xFF6A => self.OCPS,
             0xFF6B => self.read_ocram(),
             0xFF6C => self.OPRI,
-            _ => unreachable!("Cannot read IO register {address}"),
+            // Gaps in the PPU's routed ranges (e.g. 0xFF4C/0xFF4E/0xFF50 and
+            // 0xFF57-0xFF67) are unused registers - open bus, never a fault.
+            _ => Byte(0xFF),
         }
     }
     pub fn write_io(&mut self, address: Address, value: Byte) {
         match address.0 {
-            0xFF40 => {
-                self.LCDC = value & 0b01111111;
-                if !value.is_bit_set(7) && self.read_stat_mode() == StatusMode::VBlank {
-                    self.lcd_disable();
-                } else {
-                    self.lcd_enable();
-                }
-            }
+            // LCDC is fully readable and writable; bit 7 is the LCD enable. The
+            // old code masked bit 7 off the stored value and then reconstructed
+            // it from an inverted condition, so a write clearing bit 7 outside
+            // VBlank actually turned the LCD *on*.
+            0xFF40 => self.LCDC = value,
             0xFF41 => {
                 self.STAT = value & 0b0111_1100;
             }
@@ -62,7 +61,8 @@ impl PixelProcessor {
             0xFF6A => self.OCPS = value,
             0xFF6B => self.write_ocpd(value),
             0xFF6C => self.OPRI = value,
-            _ => unreachable!("Cannot write IO register {address}"),
+            // Unused registers in the PPU's routed ranges drop writes.
+            _ => {}
         }
     }
 
@@ -82,14 +82,6 @@ impl PixelProcessor {
 
     pub const fn read_lcdc_enabled(&self) -> bool {
         self.LCDC.is_bit_set(7)
-    }
-
-    fn lcd_disable(&mut self) {
-        self.LCDC.write_bit(7, false);
-    }
-
-    fn lcd_enable(&mut self) {
-        self.LCDC.write_bit(7, true);
     }
 
     pub const fn read_window_tile_map_area(&self) -> RangeInclusive<u16> {
@@ -151,17 +143,22 @@ impl PixelProcessor {
             self.ocram[self.OCPS.0 as usize & 0x3F] = value;
         }
 
-        if self.BCPS.is_bit_set(7) {
-            self.BCPS = Byte((((self.BCPS.0 & 0b0011_1111) + 1) & 0b0011_1111) + 0b1000_0000);
+        // Auto-increment OCPS (not BCPS - this indexed the wrong register, so
+        // sequential OBJ palette writes all landed on the same entry).
+        if self.OCPS.is_bit_set(7) {
+            self.OCPS = Byte((((self.OCPS.0 & 0b0011_1111) + 1) & 0b0011_1111) + 0b1000_0000);
         }
     }
 
     pub const fn read_bcram(&self) -> Byte {
-        self.bcram[self.BCPS.0 as usize]
+        // BCPS carries the auto-increment flag in bit 7; only bits 0-5 index the
+        // 64-byte palette RAM, so mask before indexing or a read past 0x3F with
+        // that bit set would panic.
+        self.bcram[self.BCPS.0 as usize & 0x3F]
     }
 
     pub const fn read_ocram(&self) -> Byte {
-        self.ocram[self.OCPS.0 as usize]
+        self.ocram[self.OCPS.0 as usize & 0x3F]
     }
 }
 

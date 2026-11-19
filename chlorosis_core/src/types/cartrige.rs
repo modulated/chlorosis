@@ -42,6 +42,37 @@ impl CartrigeHeader {
     pub fn from_bytes(slice: &[Byte]) -> Self {
         CartrigeHeaderRaw::from_bytes(slice).into()
     }
+
+    pub fn title(&self) -> &str {
+        // The 16-byte title field is NUL-padded, and on CGB carts it overlaps
+        // the manufacturer code, so bytes can follow the terminator (e.g.
+        // "PM_CRYSTAL\0BYTE"). Take only up to the first NUL, then trim spaces.
+        let end = self.title.find('\0').unwrap_or(self.title.len());
+        self.title[..end].trim_end_matches(' ')
+    }
+
+    /// Total ROM size in bytes as declared by the header.
+    pub const fn rom_size(&self) -> u64 {
+        self.rom_size
+    }
+
+    /// Total external-RAM size in bytes as declared by the header.
+    pub const fn ram_size(&self) -> u32 {
+        self.ram_size
+    }
+
+    /// Whether the cartridge asks for CGB features (either CGB-only or
+    /// backwards-compatible). Drives the colour renderer; a plain DMG cart
+    /// (`Unknown` flag) keeps the greyscale path.
+    pub const fn is_cgb(&self) -> bool {
+        matches!(self.cgb_flag, ColorMode::BackwardsCompat | ColorMode::ColorOnly)
+    }
+
+    /// The header's global checksum (`0x14E-0x14F`). Not verified at boot, but
+    /// distinctive enough to use as a cheap ROM identity for save states.
+    pub const fn global_checksum(&self) -> u16 {
+        self.global_checksum
+    }
 }
 
 // TODO - remove transmute - impl from/to conversion
@@ -111,7 +142,7 @@ impl From<CartrigeHeaderRaw> for CartrigeHeader {
             licensee_name: value.get_licensee_name(),
             licensee_code: value.get_licensee_code(),
             sgb_flag: value.sgb_flag.into(),
-            mbc_type: unsafe { transmute(value.mbc_type) },
+            mbc_type: unsafe { transmute::<u8, MemoryBankControllerType>(value.mbc_type) },
             rom_size: get_rom_size(value.rom_size),
             rom_banks: (get_rom_size(value.rom_size) / 0x4000) as u16,
             ram_size: get_ram_size(value.ram_size),
@@ -883,6 +914,26 @@ mod tests {
         assert_eq!(get_rom_size(0x01), 0x10000);
         assert_eq!(get_rom_size(0x05), 0x100000);
         assert_eq!(get_rom_size(0x54), 0x180000);
+    }
+
+    #[test]
+    fn title_stops_at_the_first_nul() {
+        use super::CartrigeHeader;
+        use crate::Byte;
+
+        // A CGB header where the title overlaps the manufacturer code, so bytes
+        // follow the terminator - as in Pokemon Crystal ("PM_CRYSTAL\0BYTE").
+        let mut raw = [Byte(0); 0x50];
+        for (i, b) in b"PM_CRYSTAL\0BYTE".iter().enumerate() {
+            raw[0x33 + i] = Byte(*b);
+        }
+        // Keep the size/type codes valid so parsing does not panic.
+        raw[0x47] = Byte(0x00); // MBC: ROM ONLY
+        raw[0x48] = Byte(0x00); // ROM size
+        raw[0x49] = Byte(0x00); // RAM size
+
+        let header = CartrigeHeader::from_bytes(&raw);
+        assert_eq!(header.title(), "PM_CRYSTAL");
     }
 
     #[test]

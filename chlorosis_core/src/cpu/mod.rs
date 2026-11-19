@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::Device;
 
 use super::{types::SignedByte, Address, Byte};
@@ -9,7 +11,7 @@ mod macros;
 mod opcodes;
 mod registers;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CentralProcessor {
     pub a: Byte,
     pub b: Byte,
@@ -25,20 +27,34 @@ pub struct CentralProcessor {
     pub pc: Address,
     pub sp: Address,
     pub interupt_master_enable: bool,
+    /// Set by `HALT`; the CPU idles until an enabled interrupt is pending.
+    pub halted: bool,
+    /// Set when `HALT` is executed with interrupts disabled but one already
+    /// pending (the "HALT bug"): the next opcode byte is fetched twice.
+    pub halt_bug: bool,
     pub cost: u8,
 }
 
 impl Default for CentralProcessor {
+    /// Registers as the CGB boot ROM leaves them, so a cartridge can run without
+    /// the boot ROM being executed. `PC` already starts at `0x0100` - the first
+    /// cartridge instruction - which is only correct if the rest of the state is
+    /// post-boot too, so the remaining registers are filled in to match.
+    ///
+    /// These are the CGB values (`AF=0x1180 BC=0x0000 DE=0xFF56 HL=0x000D`); a
+    /// ROM detects CGB by finding `0x11` in `A`. Running the real boot ROM and
+    /// selecting DMG values for DMG-only carts are follow-ups (see the MVP
+    /// checklist).
     fn default() -> Self {
         Self {
-            a: Byte(0x00),
+            a: Byte(0x11),
             b: Byte(0x00),
             c: Byte(0x00),
-            d: Byte(0x00),
-            e: Byte(0x00),
+            d: Byte(0xFF),
+            e: Byte(0x56),
             h: Byte(0x00),
-            l: Byte(0x00),
-            z_flag: false,
+            l: Byte(0x0D),
+            z_flag: true,
             n_flag: false,
             h_flag: false,
             c_flag: false,
@@ -46,7 +62,8 @@ impl Default for CentralProcessor {
             sp: Address(0xFFFE),
             cost: 0,
             interupt_master_enable: false,
-            // cycle_count: 0,
+            halted: false,
+            halt_bug: false,
         }
     }
 }
@@ -55,8 +72,7 @@ impl CentralProcessor {
     pub fn new() -> Self {
         Default::default()
     }
-    pub fn read_f(&self) -> Byte {
-        // TODO: may be able to make const?
+    pub const fn read_f(&self) -> Byte {
         let mut b = Byte(0x0);
         b.write_bit(7, self.z_flag);
         b.write_bit(6, self.n_flag);
@@ -77,36 +93,36 @@ impl CentralProcessor {
         Address(((self.h.0 as u16) << 8) + self.l.0 as u16)
     }
 
-    pub fn read_af(&self) -> Address {
+    pub const fn read_af(&self) -> Address {
         Address(((self.a.0 as u16) << 8) + self.read_f().0 as u16)
     }
 
-    fn write_f(&mut self, val: Byte) {
+    const fn write_f(&mut self, val: Byte) {
         self.z_flag = val.is_bit_set(7);
         self.n_flag = val.is_bit_set(6);
         self.h_flag = val.is_bit_set(5);
         self.c_flag = val.is_bit_set(4);
     }
 
-    fn write_bc(&mut self, addr: Address) {
+    const fn write_bc(&mut self, addr: Address) {
         let (b, c) = addr.split();
         self.b = b;
         self.c = c;
     }
 
-    fn write_de(&mut self, addr: Address) {
+    const fn write_de(&mut self, addr: Address) {
         let (d, e) = addr.split();
         self.d = d;
         self.e = e;
     }
 
-    fn write_hl(&mut self, addr: Address) {
+    const fn write_hl(&mut self, addr: Address) {
         let (h, l) = addr.split();
         self.h = h;
         self.l = l;
     }
 
-    fn write_af(&mut self, addr: Address) {
+    const fn write_af(&mut self, addr: Address) {
         let (a, f) = addr.split();
         self.a = a;
         self.write_f(f);
@@ -128,16 +144,33 @@ impl CentralProcessor {
 }
 
 impl Device {
+    /// Advance the CPU by one machine cycle (four master clock ticks).
+    ///
+    /// Instruction costs are counted in machine cycles, so this must be driven
+    /// once per machine cycle - see `Device::tick`, which calls it every fourth
+    /// tick. Driving it every tick, as an earlier version did, ran the CPU four
+    /// times too fast relative to the PPU.
     pub fn step_cpu(&mut self) {
-        // return if cycle timer not 0
+        // Still working through the current instruction's duration.
         if self.cpu.cost != 0 {
             self.cpu.cost -= 1;
             return;
         }
-        // fetch instruction
-        let op = self.fetch_instruction();
 
-        // execute instruction
+        // At an instruction boundary. A pending interrupt is serviced before
+        // the next fetch, and also wakes the CPU from HALT.
+        if self.service_interrupt() {
+            return;
+        }
+
+        // Halted with nothing pending: idle this cycle.
+        if self.cpu.halted {
+            return;
+        }
+
+        let op = self.fetch_instruction();
+        // `execute` sets the instruction's full machine-cycle cost and then
+        // consumes the first cycle itself, so nothing more is decremented here.
         self.execute(op);
     }
 
@@ -161,7 +194,7 @@ impl Device {
         Address(((b2.0 as u16) << 8) + b1.0 as u16)
     }
 
-    fn push_address(&mut self, addr: Address) {
+    pub(crate) fn push_address(&mut self, addr: Address) {
         let (h, l) = addr.split();
         self.cpu.sp -= 1;
         self.write(self.cpu.sp, h);

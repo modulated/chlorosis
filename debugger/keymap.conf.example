@@ -1,0 +1,33 @@
+# Chlorosis key bindings.
+#
+# Copy this file to `keymap.conf` in the directory you run the emulator from,
+# or point CHLOROSIS_KEYMAP at it, then edit the bindings below.
+#
+# Format:  name = value[, value ...]
+#   buttons: up down left right a b start select   (take one or more keys)
+#   keys:    single letters (a-z), digits (0-9), or names:
+#            up down left right enter space backspace tab
+#            lshift rshift lctrl rctrl comma period slash semicolon apostrophe
+#
+# Listing this file with any valid button binding replaces the built-in button
+# defaults, so include every button you want bound. The defaults are:
+
+up     = up, w
+down   = down, s
+left   = left, a
+right  = right, d
+a      = x
+b      = z
+start  = enter
+select = backspace, rshift
+
+# Emulator controls (each optional; these are the defaults):
+#   pause       = key            toggle pause/resume
+#   turbo       = key | none     hold to fast-forward (none disables it)
+#   turbo_speed = percent        the fast-forward speed, >= 100
+#   mute_turbo  = true | false   silence audio while fast-forwarding
+
+pause       = p
+turbo       = space
+turbo_speed = 500
+mute_turbo  = true
